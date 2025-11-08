@@ -1,0 +1,176 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: lms-postgres
+    environment:
+      POSTGRES_USER: ${LMS_DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${LMS_DB_PASSWORD:-postgres}
+      POSTGRES_DB: ${LMS_DB_NAME:-lms}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8"
+    ports:
+      - "${LMS_DB_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${LMS_DB_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - lms-network
+
+  # Redis (if needed for caching)
+  redis:
+    image: redis:7-alpine
+    container_name: lms-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - lms-network
+
+  # LMS Server (Development)
+  lms-server-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: lms-server-dev
+    ports:
+      - "${LMS_SERVER_PORT:-8080}:8080"
+    environment:
+      - LMS_SERVER_ENV=development
+      - LMS_SERVER_HOST=0.0.0.0
+      - LMS_SERVER_PORT=8080
+      - LMS_LOG_LEVEL=debug
+      - LMS_DB_HOST=postgres
+      - LMS_DB_PORT=5432
+      - LMS_DB_USER=${LMS_DB_USER:-postgres}
+      - LMS_DB_PASSWORD=${LMS_DB_PASSWORD:-postgres}
+      - LMS_DB_NAME=${LMS_DB_NAME:-lms}
+      - LMS_DB_SSLMODE=disable
+      - LMS_ALLOWED_ORIGINS=http://localhost:3000,http://localhost:5173
+      - JWT_SECRET=${JWT_SECRET:-dev-secret-change-me}
+      - JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET:-dev-refresh-secret-change-me}
+    volumes:
+      - .:/app
+      - go-mod-cache:/go/pkg/mod
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - lms-network
+    restart: unless-stopped
+
+  # LMS Server (Production)
+  lms-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VERSION: ${VERSION:-1.0.0}
+        GIT_COMMIT: ${GIT_COMMIT:-unknown}
+        BUILD_TIME: ${BUILD_TIME}
+    container_name: lms-server
+    ports:
+      - "${LMS_SERVER_PORT:-8080}:8080"
+    environment:
+      - LMS_SERVER_ENV=production
+      - LMS_SERVER_HOST=0.0.0.0
+      - LMS_SERVER_PORT=8080
+      - LMS_LOG_LEVEL=info
+      - LMS_DB_HOST=postgres
+      - LMS_DB_PORT=5432
+      - LMS_DB_USER=${LMS_DB_USER}
+      - LMS_DB_PASSWORD=${LMS_DB_PASSWORD}
+      - LMS_DB_NAME=${LMS_DB_NAME}
+      - LMS_DB_SSLMODE=require
+      - LMS_DB_MAX_IDLE_CONNS=10
+      - LMS_DB_MAX_OPEN_CONNS=50
+      - LMS_DB_CONN_MAX_LIFETIME=3600
+      - LMS_DB_CONN_MAX_IDLE_TIME=600
+      - LMS_ALLOWED_ORIGINS=${LMS_ALLOWED_ORIGINS}
+      - JWT_SECRET=${JWT_SECRET}
+      - JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET}
+      - BUNNY_STREAM_LIBRARY_ID=${BUNNY_STREAM_LIBRARY_ID}
+      - BUNNY_STREAM_API_KEY=${BUNNY_STREAM_API_KEY}
+      - BUNNY_STREAM_SECURITY_KEY=${BUNNY_STREAM_SECURITY_KEY}
+      - BUNNY_STORAGE_ZONE=${BUNNY_STORAGE_ZONE}
+      - BUNNY_STORAGE_API_KEY=${BUNNY_STORAGE_API_KEY}
+      - EMAIL_HOST=${EMAIL_HOST}
+      - EMAIL_PORT=${EMAIL_PORT}
+      - EMAIL_USERNAME=${EMAIL_USERNAME}
+      - EMAIL_PASSWORD=${EMAIL_PASSWORD}
+      - EMAIL_FROM=${EMAIL_FROM}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - lms-network
+    restart: unless-stopped
+    profiles:
+      - production
+
+  # Prometheus (Monitoring)
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: lms-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./deployments/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=30d'
+    networks:
+      - lms-network
+    profiles:
+      - monitoring
+
+  # Grafana (Visualization)
+  grafana:
+    image: grafana/grafana:latest
+    container_name: lms-grafana
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+      - GF_SERVER_ROOT_URL=http://localhost:3001
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./deployments/grafana/provisioning:/etc/grafana/provisioning:ro
+    depends_on:
+      - prometheus
+    networks:
+      - lms-network
+    profiles:
+      - monitoring
+
+volumes:
+  postgres-data:
+  redis-data:
+  go-mod-cache:
+  prometheus-data:
+  grafana-data:
+
+networks:
+  lms-network:
+    driver: bridge

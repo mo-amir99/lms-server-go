@@ -1,0 +1,21 @@
+# Prometheus configuration for LMS Server monitoring
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: "lms-cluster"
+    environment: "production"
+
+scrape_configs:
+  # LMS Server metrics
+  - job_name: "lms-server"
+    static_configs:
+      - targets: ["lms-server:8080"]
+    metrics_path: "/metrics"
+    scrape_interval: 10s
+
+  # Prometheus self-monitoring
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
