@@ -7,7 +7,6 @@ var (
 	ErrNameRequired       = errors.New("lesson name is required")
 	ErrNameLength         = errors.New("lesson name must be between 3 and 80 characters")
 	ErrVideoIDRequired    = errors.New("video ID is required")
-	ErrOrderTaken         = errors.New("lesson order already exists for this course")
 	ErrCourseNotFound     = errors.New("course not found")
 	ErrDescriptionTooLong = errors.New("lesson description cannot exceed 1000 characters")
 	ErrOrderInvalid       = errors.New("lesson order cannot be negative")

@@ -5,15 +5,13 @@ import (
 )
 
 // RegisterRoutes sets up support ticket endpoints under /subscriptions/:subscriptionId/support-tickets.
-// Auth middleware should be applied at the router group level before calling this.
-func RegisterRoutes(router *gin.RouterGroup, handler *Handler) {
+func RegisterRoutes(router *gin.RouterGroup, handler *Handler, acStaff, acAll []gin.HandlerFunc) {
 	tickets := router.Group("/subscriptions/:subscriptionId/support-tickets")
-	{
-		tickets.GET("", handler.ListForSubscription)      // Instructors+ see all tickets
-		tickets.GET("/my-tickets", handler.ListMyTickets) // Students see their own tickets
-		tickets.POST("", handler.Create)                  // Students submit tickets
-		tickets.GET("/:ticketId", handler.GetByID)
-		tickets.PUT("/:ticketId/reply", handler.Reply) // Instructors+ reply to tickets
-		tickets.DELETE("/:ticketId", handler.Delete)   // Admins+ delete tickets
-	}
+
+	tickets.GET("", append(acStaff, handler.ListForSubscription)...)
+	tickets.GET("/my-tickets", append(acAll, handler.ListMyTickets)...)
+	tickets.POST("", append(acAll, handler.Create)...)
+	tickets.GET("/:ticketId", append(acAll, handler.GetByID)...)
+	tickets.PUT("/:ticketId/reply", append(acStaff, handler.Reply)...)
+	tickets.DELETE("/:ticketId", append(acStaff, handler.Delete)...)
 }

@@ -5,13 +5,13 @@ import (
 )
 
 // RegisterRoutes registers group access routes.
-func RegisterRoutes(r *gin.RouterGroup, handler *Handler) {
+// Middleware is passed as parameters to avoid import cycles
+func RegisterRoutes(r *gin.RouterGroup, handler *Handler, acStaff []gin.HandlerFunc) {
 	groups := r.Group("/subscriptions/:subscriptionId/groups")
-	{
-		groups.POST("", handler.Create)
-		groups.GET("", handler.List)
-		groups.GET("/:groupId", handler.Get)
-		groups.PATCH("/:groupId", handler.Update)
-		groups.DELETE("/:groupId", handler.Delete)
-	}
+
+	groups.GET("", append(acStaff, handler.List)...)
+	groups.POST("", append(acStaff, handler.Create)...)
+	groups.GET("/:groupId", append(acStaff, handler.Get)...)
+	groups.PUT("/:groupId", append(acStaff, handler.Update)...)
+	groups.DELETE("/:groupId", append(acStaff, handler.Delete)...)
 }

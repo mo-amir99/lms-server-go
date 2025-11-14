@@ -11,7 +11,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/mo-amir99/lms-server-go/pkg/cleanup"
-	"github.com/mo-amir99/lms-server-go/pkg/middleware"
+	"github.com/mo-amir99/lms-server-go/internal/middleware"
 	"github.com/mo-amir99/lms-server-go/pkg/pagination"
 	"github.com/mo-amir99/lms-server-go/pkg/request"
 	"github.com/mo-amir99/lms-server-go/pkg/response"
@@ -250,3 +250,5 @@ func (h *Handler) respondError(c *gin.Context, err error, fallback string) {
 
 	response.ErrorWithLog(h.logger, c, status, message, err)
 }
+
+

@@ -3,6 +3,7 @@ package bunny
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"io"
 	"net/http"
@@ -187,6 +188,19 @@ func (c *StorageClient) GetPublicURL(remotePath string) string {
 	return fmt.Sprintf("https://%s/%s", c.hostname, remotePath)
 }
 
+// ExtractRelativePath extracts the relative storage path from a full CDN URL.
+// For example, converts "https://elites-academy.b-cdn.net/test-sub/course-id/file.pdf"
+// to "test-sub/course-id/file.pdf"
+func (c *StorageClient) ExtractRelativePath(cdnURL string) string {
+	// Remove the CDN hostname prefix
+	prefix := fmt.Sprintf("https://%s/", c.hostname)
+	if len(cdnURL) > len(prefix) && cdnURL[:len(prefix)] == prefix {
+		return cdnURL[len(prefix):]
+	}
+	// If it doesn't match the expected format, return as-is (might already be relative)
+	return cdnURL
+}
+
 // FileInfo represents metadata about a file in Bunny Storage.
 type FileInfo struct {
 	ObjectName      string    `json:"ObjectName"`
@@ -246,14 +260,25 @@ type StorageUploadInfo struct {
 }
 
 // GenerateUploadURL generates a signed upload URL for direct client-side uploads to Bunny Storage.
-// The URL expires after the specified duration.
+// The URL expires after the specified duration and includes authentication signature.
 func (c *StorageClient) GenerateUploadURL(remotePath string, contentType string, expiresIn time.Duration) *StorageUploadInfo {
 	if contentType == "" {
 		contentType = "application/octet-stream"
 	}
 
 	expiresAt := time.Now().Add(expiresIn)
-	uploadURL := fmt.Sprintf("%s/%s/%s", c.baseURL, c.zoneName, remotePath)
+	expiration := expiresAt.Unix()
+
+	// Generate signature for pre-signed URL
+	// Format: SHA256(zoneName + password + expiration + remotePath)
+	signatureString := fmt.Sprintf("%s%s%d%s", c.zoneName, c.password, expiration, remotePath)
+	hash := sha256.New()
+	hash.Write([]byte(signatureString))
+	signature := fmt.Sprintf("%x", hash.Sum(nil))
+
+	// Create pre-signed upload URL with signature as query parameter
+	uploadURL := fmt.Sprintf("%s/%s/%s?signature=%s&expires=%d",
+		c.baseURL, c.zoneName, remotePath, signature, expiration)
 
 	return &StorageUploadInfo{
 		URL:         uploadURL,
@@ -262,7 +287,6 @@ func (c *StorageClient) GenerateUploadURL(remotePath string, contentType string,
 		ContentType: contentType,
 		Method:      "PUT",
 		Headers: map[string]string{
-			"AccessKey":    c.password,
 			"Content-Type": contentType,
 		},
 	}

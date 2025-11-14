@@ -4,6 +4,7 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
+	"github.com/mo-amir99/lms-server-go/internal/features/user"
 	"github.com/mo-amir99/lms-server-go/pkg/types"
 )
 
@@ -17,12 +18,8 @@ type SupportTicket struct {
 	Message        string    `gorm:"type:text;not null" json:"message"`
 	ReplyInfo      *string   `gorm:"type:text" json:"replyInfo,omitempty"`
 
-	// Associations - using a minimal user struct to avoid circular dependencies
-	User *struct {
-		ID       uuid.UUID `json:"id"`
-		FullName string    `json:"fullName" gorm:"column:full_name"`
-		Email    string    `json:"email"`
-	} `gorm:"foreignKey:UserID;references:ID;-:migration" json:"user,omitempty"`
+	// Association - reference to User model
+	User *user.User `gorm:"foreignKey:UserID;references:ID" json:"user,omitempty"`
 }
 
 // TableName overrides the default table name.
@@ -34,9 +31,7 @@ func (SupportTicket) TableName() string {
 func GetBySubscription(db *gorm.DB, subscriptionID uuid.UUID) ([]SupportTicket, error) {
 	var tickets []SupportTicket
 	if err := db.Where("subscription_id = ?", subscriptionID).
-		Preload("User", func(db *gorm.DB) *gorm.DB {
-			return db.Select("id, full_name, email")
-		}).
+		Preload("User").
 		Order("created_at DESC").
 		Find(&tickets).Error; err != nil {
 		return nil, err
@@ -48,9 +43,7 @@ func GetBySubscription(db *gorm.DB, subscriptionID uuid.UUID) ([]SupportTicket, 
 func GetByUserAndSubscription(db *gorm.DB, userID, subscriptionID uuid.UUID) ([]SupportTicket, error) {
 	var tickets []SupportTicket
 	if err := db.Where("user_id = ? AND subscription_id = ?", userID, subscriptionID).
-		Preload("User", func(db *gorm.DB) *gorm.DB {
-			return db.Select("id, full_name, email")
-		}).
+		Preload("User").
 		Order("created_at DESC").
 		Find(&tickets).Error; err != nil {
 		return nil, err
@@ -61,9 +54,8 @@ func GetByUserAndSubscription(db *gorm.DB, userID, subscriptionID uuid.UUID) ([]
 // Get retrieves a single ticket by ID with user info.
 func Get(db *gorm.DB, id uuid.UUID) (*SupportTicket, error) {
 	var ticket SupportTicket
-	if err := db.Preload("User", func(db *gorm.DB) *gorm.DB {
-		return db.Select("id, full_name, email")
-	}).First(&ticket, "id = ?", id).Error; err != nil {
+	if err := db.Preload("User").
+		First(&ticket, "id = ?", id).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, ErrTicketNotFound
 		}
@@ -134,9 +126,7 @@ func Update(db *gorm.DB, id uuid.UUID, input UpdateInput) (*SupportTicket, error
 	}
 
 	// Reload with user info
-	if err := db.Preload("User", func(db *gorm.DB) *gorm.DB {
-		return db.Select("id, full_name, email")
-	}).First(&ticket, "id = ?", id).Error; err != nil {
+	if err := db.Preload("User").First(&ticket, "id = ?", id).Error; err != nil {
 		return nil, err
 	}
 

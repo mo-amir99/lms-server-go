@@ -25,6 +25,8 @@ import (
 	"github.com/mo-amir99/lms-server-go/pkg/metrics"
 	"github.com/mo-amir99/lms-server-go/pkg/middleware"
 	"github.com/mo-amir99/lms-server-go/pkg/request"
+	socketioserver "github.com/mo-amir99/lms-server-go/pkg/socketio"
+	"github.com/mo-amir99/lms-server-go/pkg/streamcache"
 )
 
 func main() {
@@ -97,6 +99,19 @@ func main() {
 	// Initialize Meeting cache for WebRTC meetings
 	meetingCache := meeting.NewCache()
 
+	// Initialize stream cache for live streaming
+	streamCache := streamcache.Global()
+
+	// Initialize Socket.IO server for live streaming
+	socketIOServer, err := socketioserver.NewServer(db, appLogger, streamCache, cfg.JWTSecret)
+	if err != nil {
+		appLogger.Error("socket.io server initialization failed", slog.String("error", err.Error()))
+		os.Exit(1)
+	}
+	defer socketIOServer.Close()
+
+	appLogger.Info("socket.io server initialized")
+
 	// Background jobs are disabled by default - uncomment below to enable
 	// scheduler := jobs.NewScheduler(appLogger)
 	// ... see commented section for job configuration
@@ -128,13 +143,20 @@ func main() {
 
 	router := gin.New()
 
-	// Apply middlewares in order (order matters for performance)
+	// Mount Socket.IO handler FIRST before any middleware that could interfere
+	// Socket.IO needs minimal middleware - just recovery and CORS
+	router.Use(middleware.Recovery(appLogger))
+	router.Use(middleware.CORS(cfg.AllowedOrigins))
+
+	// Register Socket.IO routes with minimal middleware
+	router.GET("/socket.io/*any", gin.WrapH(socketIOServer.GetHandler()))
+	router.POST("/socket.io/*any", gin.WrapH(socketIOServer.GetHandler()))
+
+	// Now apply full middleware stack for all other routes
 	router.Use(middleware.RequestID())                        // Add request IDs for tracing
-	router.Use(middleware.Recovery(appLogger))                // Recover from panics
 	router.Use(middleware.Compression(middleware.BestSpeed))  // Compress responses (gzip)
 	router.Use(middleware.RequestLogger(appLogger))           // Log all requests
 	router.Use(middleware.SecurityHeaders())                  // Add security headers
-	router.Use(middleware.CORS(cfg.AllowedOrigins))           // CORS policy
 	router.Use(middleware.CacheControl())                     // Set cache headers
 	router.Use(middleware.RequestSizeLimit(10 * 1024 * 1024)) // 10MB limit
 	router.Use(metrics.Middleware())                          // Collect Prometheus metrics

@@ -374,3 +374,5 @@ func (h *Handler) buildPublicURL(page string) string {
 	}
 	return base + "/public/" + page
 }
+
+

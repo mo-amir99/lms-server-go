@@ -14,9 +14,9 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/mo-amir99/lms-server-go/internal/features/subscription"
+	"github.com/mo-amir99/lms-server-go/internal/middleware"
 	"github.com/mo-amir99/lms-server-go/pkg/bunny"
 	"github.com/mo-amir99/lms-server-go/pkg/cleanup"
-	"github.com/mo-amir99/lms-server-go/pkg/middleware"
 	"github.com/mo-amir99/lms-server-go/pkg/pagination"
 	"github.com/mo-amir99/lms-server-go/pkg/request"
 	"github.com/mo-amir99/lms-server-go/pkg/response"
@@ -349,10 +349,45 @@ func (h *Handler) Update(c *gin.Context) {
 		}
 	}
 
+	// Get original course before update to check if name changed
+	originalCourse, err := GetForSubscription(h.db, id, subscriptionID)
+	if err != nil {
+		h.respondError(c, err, "failed to load course")
+		return
+	}
+
 	course, err := Update(h.db, id, input)
 	if err != nil {
 		h.respondError(c, err, "failed to update course")
 		return
+	}
+
+	// If course name changed and collection exists, update the collection name in Bunny Stream
+	if input.Name != nil && *input.Name != originalCourse.Name && course.CollectionID != nil && *course.CollectionID != "" {
+		// Get subscription for identifierName
+		sub, err := subscription.Get(h.db, course.SubscriptionID)
+		if err != nil {
+			h.logger.Error("failed to load subscription for collection update",
+				"courseId", course.ID,
+				"error", err)
+		} else {
+			// Update collection with proper formatting: "subscriptionIdentifier - courseName"
+			if err := h.streamClient.UpdateCollection(c.Request.Context(), *course.CollectionID, sub.IdentifierName, *input.Name); err != nil {
+				h.logger.Error("failed to update Bunny Stream collection name",
+					"courseId", course.ID,
+					"collectionId", *course.CollectionID,
+					"subscriptionIdentifier", sub.IdentifierName,
+					"newName", *input.Name,
+					"error", err)
+				// Don't fail the request, just log the error
+				// The course name is already updated in the database
+			} else {
+				h.logger.Info("updated Bunny Stream collection name",
+					"courseId", course.ID,
+					"collectionId", *course.CollectionID,
+					"fullCollectionName", fmt.Sprintf("%s - %s", sub.IdentifierName, *input.Name))
+			}
+		}
 	}
 
 	response.Success(c, http.StatusOK, course, "", nil)
@@ -386,80 +421,32 @@ func (h *Handler) Delete(c *gin.Context) {
 		return
 	}
 
-	// Get all lessons for this course
-	type LessonWithAttachments struct {
-		ID          uuid.UUID
-		VideoID     string
-		Attachments []struct {
-			ID   uuid.UUID
-			Type string
-			Path *string
-		}
+	// Prepare course data for cleanup
+	courseData := cleanup.CourseData{
+		ID:                     id,
+		CollectionID:           course.CollectionID,
+		SubscriptionID:         course.SubscriptionID,
+		SubscriptionIdentifier: sub.IdentifierName,
 	}
 
-	var lessons []LessonWithAttachments
-	err = h.db.Table("lessons").
-		Select("lessons.id, lessons.video_id").
-		Where("lessons.course_id = ?", id).
-		Find(&lessons).Error
-	if err != nil {
-		h.logger.Error("failed to load lessons for course cleanup", "courseId", id, "error", err)
-		lessons = []LessonWithAttachments{} // Continue with empty list
-	}
+	h.logger.Info("deleting course",
+		"courseId", id,
+		"courseName", course.Name,
+		"subscriptionIdentifier", sub.IdentifierName,
+		"collectionId", course.CollectionID)
 
-	// For each lesson, get attachments
-	for i := range lessons {
-		err = h.db.Table("attachments").
-			Select("id, type, path").
-			Where("lesson_id = ?", lessons[i].ID).
-			Find(&lessons[i].Attachments).Error
-		if err != nil {
-			h.logger.Error("failed to load attachments for lesson", "lessonId", lessons[i].ID, "error", err)
-		}
-	}
-
-	// Collect all IDs for bulk operations
-	var lessonIDs []uuid.UUID
-	var attachmentIDs []uuid.UUID
-	var videoIDs []string
-
-	for _, les := range lessons {
-		lessonIDs = append(lessonIDs, les.ID)
-		if les.VideoID != "" {
-			videoIDs = append(videoIDs, les.VideoID)
-		}
-		for _, att := range les.Attachments {
-			attachmentIDs = append(attachmentIDs, att.ID)
-			// Delete attachment files
-			cleanup.DeleteAttachmentFile(c.Request.Context(), h.storageClient, h.logger, att.ID, att.Type, att.Path)
-		}
-	}
-
-	// Delete comments for all lessons in this course
-	cleanup.BulkDeleteComments(h.db, h.logger, lessonIDs, fmt.Sprintf("course_%s", id))
-
-	// Delete all attachments
-	cleanup.BulkDeleteAttachments(h.db, h.logger, attachmentIDs, fmt.Sprintf("course_%s", id))
-
-	// Delete all lessons
-	cleanup.BulkDeleteLessons(h.db, h.logger, lessonIDs, fmt.Sprintf("course_%s", id))
-
-	// Delete course from database
-	if err := Delete(h.db, id); err != nil {
-		h.respondError(c, err, "failed to delete course")
+	// Use comprehensive cleanup function
+	// clearFiles=true: delete files from Bunny Storage and Stream
+	// storageCleaned=false: storage NOT already cleaned, so DO clean course folder
+	// videoCleaned=false: videos NOT already cleaned, so DO clean collection/videos
+	if err := cleanup.CleanupCourse(c.Request.Context(), h.db, h.streamClient, h.storageClient, h.logger, courseData, true, false, false); err != nil {
+		response.ErrorWithLog(h.logger, c, http.StatusInternalServerError, "failed to cleanup course", err)
 		return
 	}
 
-	// Cleanup Bunny Stream videos
-	cleanup.BulkDeleteVideos(c.Request.Context(), h.streamClient, h.logger, videoIDs, fmt.Sprintf("course_%s", id))
-
-	// Cleanup Bunny Stream collection
-	if course.CollectionID != nil && *course.CollectionID != "" {
-		cleanup.DeleteCourseCollection(c.Request.Context(), h.streamClient, h.logger, id, *course.CollectionID)
-	}
-
-	// Cleanup Bunny Storage folder
-	cleanup.DeleteCourseFolder(c.Request.Context(), h.storageClient, h.logger, id, sub.IdentifierName)
+	h.logger.Info("course deleted successfully",
+		"courseId", id,
+		"courseName", course.Name)
 
 	response.Success(c, http.StatusOK, true, "", nil)
 }

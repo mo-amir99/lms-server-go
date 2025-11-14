@@ -117,6 +117,53 @@ func (c *StreamClient) DeleteCollection(ctx context.Context, collectionID string
 	return nil
 }
 
+// UpdateCollectionRequest represents the payload for updating a collection name.
+type UpdateCollectionRequest struct {
+	Name string `json:"name"`
+}
+
+// UpdateCollection updates a collection's name with proper formatting (subscriptionIdentifier - courseName).
+func (c *StreamClient) UpdateCollection(ctx context.Context, collectionID, subscriptionIdentifierName, courseName string) error {
+	if collectionID == "" || subscriptionIdentifierName == "" || courseName == "" {
+		return fmt.Errorf("collectionID, subscriptionIdentifierName, and courseName are required")
+	}
+
+	// Format collection name to match creation style: "subscription - courseName"
+	collectionName := fmt.Sprintf("%s - %s", subscriptionIdentifierName, courseName)
+
+	reqBody := UpdateCollectionRequest{
+		Name: collectionName,
+	}
+
+	bodyBytes, err := json.Marshal(reqBody)
+	if err != nil {
+		return fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	url := fmt.Sprintf("%s/library/%s/collections/%s", c.baseURL, c.libraryID, collectionID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("AccessKey", c.apiKey)
+	req.Header.Set("User-Agent", "LMS-Server-Go/1.0.0")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to execute request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("bunny API error: status=%d, body=%s", resp.StatusCode, string(bodyBytes))
+	}
+
+	return nil
+}
+
 // CreateVideoRequest represents the payload for creating a video.
 type CreateVideoRequest struct {
 	Title        string `json:"title"`
@@ -324,35 +371,49 @@ func (c *StreamClient) CreateVideoUploadURL(ctx context.Context, title, collecti
 	return videoID, uploadURL, nil
 }
 
-// GetVideoUploadInfo returns information needed for direct video upload
-type VideoUploadInfo struct {
-	VideoID      string `json:"videoId"`
-	UploadURL    string `json:"uploadURL"`
-	LibraryID    string `json:"libraryId"`
-	ExpiresAt    int64  `json:"expiresAt"`
-	ExpiresInSec int    `json:"expiresIn"`
+// TusUploadInfo returns information needed for TUS resumable upload to Bunny Stream
+type TusUploadInfo struct {
+	VideoID                string `json:"videoId"`
+	LessonName             string `json:"lessonName"`  // The lesson name for client reference
+	TusEndpoint            string `json:"tusEndpoint"` // TUS upload endpoint
+	LibraryID              string `json:"libraryId"`
+	AuthorizationSignature string `json:"authorizationSignature"` // Signed auth token
+	AuthorizationExpire    int64  `json:"authorizationExpire"`    // Unix timestamp when signature expires
+	ExpiresInSec           int    `json:"expiresIn"`              // Seconds until expiration
 }
 
-// GenerateVideoUploadInfo creates a video and returns all info needed for direct upload
-func (c *StreamClient) GenerateVideoUploadInfo(ctx context.Context, title, collectionID string, expirationSeconds int) (*VideoUploadInfo, error) {
-	// Create video entry
+// GenerateTusUploadInfo creates a video and returns TUS upload information with signed authentication
+// TUS Protocol enables resumable uploads - if connection fails, upload can resume from where it left off
+// Reference: https://docs.bunny.net/docs/stream-upload-videos#upload-with-tus
+func (c *StreamClient) GenerateTusUploadInfo(ctx context.Context, title, collectionID string, expirationSeconds int) (*TusUploadInfo, error) {
+	// Create video entry in Bunny Stream
 	videoID, err := c.CreateVideo(ctx, title, collectionID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create video: %w", err)
 	}
 
 	if expirationSeconds <= 0 {
-		expirationSeconds = 86400 // Default 24 hours
+		expirationSeconds = 21600 // Default 6 hours for large video uploads
 	}
 
 	expiration := time.Now().Unix() + int64(expirationSeconds)
-	uploadURL := fmt.Sprintf("%s/library/%s/videos/%s", c.baseURL, c.libraryID, videoID)
 
-	return &VideoUploadInfo{
-		VideoID:      videoID,
-		UploadURL:    uploadURL,
-		LibraryID:    c.libraryID,
-		ExpiresAt:    expiration,
-		ExpiresInSec: expirationSeconds,
+	// Generate signature for TUS authentication
+	// Format: SHA256(libraryId + apiKey + expirationTime + videoId)
+	signatureString := fmt.Sprintf("%s%s%d%s", c.libraryID, c.apiKey, expiration, videoID)
+	hash := sha256.Sum256([]byte(signatureString))
+	signature := fmt.Sprintf("%x", hash)
+
+	// TUS endpoint for resumable uploads
+	tusEndpoint := "https://video.bunnycdn.com/tusupload"
+
+	return &TusUploadInfo{
+		VideoID:                videoID,
+		LessonName:             title,
+		TusEndpoint:            tusEndpoint,
+		LibraryID:              c.libraryID,
+		AuthorizationSignature: signature,
+		AuthorizationExpire:    expiration,
+		ExpiresInSec:           expirationSeconds,
 	}, nil
 }

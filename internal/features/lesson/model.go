@@ -84,12 +84,20 @@ func List(db *gorm.DB, filters ListFilters, params pagination.Params) ([]Lesson,
 	}
 
 	var total int64
-	if err := query.Session(&gorm.Session{NewDB: true}).Count(&total).Error; err != nil {
+	countQuery := db.Model(&Lesson{}).Where("course_id = ?", filters.CourseID)
+	if filters.Keyword != "" {
+		keyword := "%" + strings.ToLower(filters.Keyword) + "%"
+		countQuery = countQuery.Where("LOWER(name) LIKE ? OR LOWER(description) LIKE ?", keyword, keyword)
+	}
+	if filters.ActiveOnly {
+		countQuery = countQuery.Where("is_active = ?", true)
+	}
+	if err := countQuery.Count(&total).Error; err != nil {
 		return nil, total, err
 	}
 
 	var lessons []Lesson
-	err := query.Session(&gorm.Session{NewDB: true}).
+	err := query.
 		Preload("Attachments", func(db *gorm.DB) *gorm.DB {
 			return db.Select("id", "lesson_id", "name", "type", "path", "\"order\"", "is_active", "created_at", "updated_at").
 				Order("\"order\" ASC NULLS LAST, name ASC")
@@ -182,18 +190,6 @@ func Create(db *gorm.DB, input CreateInput) (Lesson, error) {
 		return Lesson{}, ErrDurationInvalid
 	}
 
-	// Check order uniqueness if provided
-	if input.Order != nil {
-		var existing Lesson
-		err := db.First(&existing, "course_id = ? AND \"order\" = ?", input.CourseID, *input.Order).Error
-		if err == nil {
-			return Lesson{}, ErrOrderTaken
-		}
-		if err != gorm.ErrRecordNotFound {
-			return Lesson{}, err
-		}
-	}
-
 	active := true
 	if input.Active != nil {
 		active = *input.Active
@@ -262,14 +258,6 @@ func Update(db *gorm.DB, id uuid.UUID, input UpdateInput) (Lesson, error) {
 		if input.Order != nil {
 			if *input.Order < 0 {
 				return lesson, ErrOrderInvalid
-			}
-			var existing Lesson
-			err := db.First(&existing, "course_id = ? AND \"order\" = ? AND id != ?", lesson.CourseID, *input.Order, id).Error
-			if err == nil {
-				return lesson, ErrOrderTaken
-			}
-			if err != gorm.ErrRecordNotFound {
-				return lesson, err
 			}
 			lesson.Order = *input.Order
 		} else {

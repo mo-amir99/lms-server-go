@@ -51,7 +51,12 @@ func ErrorWithLog(logger *slog.Logger, c *gin.Context, status int, message strin
 		logger.ErrorContext(c.Request.Context(), message, slog.Int("status", status), slog.String("error", err.Error()))
 	}
 
-	Error(c, status, message, err)
+	// Return a serialized error value so clients receive a useful message
+	if err != nil {
+		Error(c, status, message, err.Error())
+	} else {
+		Error(c, status, message, nil)
+	}
 }
 
 // ErrorWithData writes an error response that also carries a data payload while optionally logging the incident.

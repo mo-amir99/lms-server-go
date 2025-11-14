@@ -11,9 +11,10 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/mo-amir99/lms-server-go/internal/features/user"
-	"github.com/mo-amir99/lms-server-go/pkg/middleware"
+	"github.com/mo-amir99/lms-server-go/internal/middleware"
 	"github.com/mo-amir99/lms-server-go/pkg/request"
 	"github.com/mo-amir99/lms-server-go/pkg/response"
+	"github.com/mo-amir99/lms-server-go/pkg/types"
 )
 
 // Handler processes support ticket HTTP requests.
@@ -184,7 +185,7 @@ func (h *Handler) Delete(c *gin.Context) {
 	}
 
 	// Only admins and superadmins can delete tickets
-	if !user.CanManageUserType(currentUser.UserType, user.UserTypeAdmin) {
+	if !user.CanManageUserType(currentUser.UserType, types.UserTypeAdmin) {
 		response.ErrorWithLog(h.logger, c, http.StatusForbidden, "unauthorized to delete tickets", nil)
 		return
 	}

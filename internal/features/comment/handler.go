@@ -10,9 +10,9 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	"github.com/mo-amir99/lms-server-go/internal/features/user"
-	"github.com/mo-amir99/lms-server-go/pkg/middleware"
+	"github.com/mo-amir99/lms-server-go/internal/middleware"
 	"github.com/mo-amir99/lms-server-go/pkg/response"
+	"github.com/mo-amir99/lms-server-go/pkg/types"
 )
 
 // Handler processes comment HTTP requests.
@@ -123,10 +123,10 @@ func (h *Handler) Delete(c *gin.Context) {
 
 	// Check authorization: owner, instructor, assistant, admin, or superadmin can delete
 	canDelete := currentUser.ID == comment.UserID ||
-		currentUser.UserType == user.UserTypeInstructor ||
-		currentUser.UserType == user.UserTypeAssistant ||
-		currentUser.UserType == user.UserTypeAdmin ||
-		currentUser.UserType == user.UserTypeSuperAdmin
+		currentUser.UserType == types.UserTypeInstructor ||
+		currentUser.UserType == types.UserTypeAssistant ||
+		currentUser.UserType == types.UserTypeAdmin ||
+		currentUser.UserType == types.UserTypeSuperAdmin
 
 	if !canDelete {
 		response.ErrorWithLog(h.logger, c, http.StatusForbidden, "not authorized", nil)

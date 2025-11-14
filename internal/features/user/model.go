@@ -37,10 +37,12 @@ func (User) TableName() string { return "users" }
 
 // ListFilters defines user query filters.
 type ListFilters struct {
-	Keyword        string
-	SubscriptionID *uuid.UUID
-	UserType       []string
-	ExcludeID      *uuid.UUID
+	Keyword         string
+	SubscriptionID  *uuid.UUID
+	UserType        []string
+	UserTypes       []types.UserType
+	ExcludeID       *uuid.UUID
+	ExcludeUserType types.UserType
 }
 
 // CreateInput carries data for creating a new user.
@@ -85,8 +87,16 @@ func List(db *gorm.DB, filters ListFilters, params pagination.Params) ([]User, i
 		query = query.Where("user_type IN ?", filters.UserType)
 	}
 
+	if len(filters.UserTypes) > 0 {
+		query = query.Where("user_type IN ?", filters.UserTypes)
+	}
+
 	if filters.ExcludeID != nil {
 		query = query.Where("id != ?", *filters.ExcludeID)
+	}
+
+	if filters.ExcludeUserType != "" {
+		query = query.Where("user_type != ?", filters.ExcludeUserType)
 	}
 
 	var total int64

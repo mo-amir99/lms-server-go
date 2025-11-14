@@ -7,7 +7,6 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	"github.com/mo-amir99/lms-server-go/internal/features/user"
 	"github.com/mo-amir99/lms-server-go/pkg/pagination"
 	"github.com/mo-amir99/lms-server-go/pkg/types"
 )
@@ -61,7 +60,7 @@ func GetBySubscription(db *gorm.DB, subscriptionID uuid.UUID, userType types.Use
 	var forums []Forum
 	query := db.Where("subscription_id = ?", subscriptionID)
 
-	if userType == user.UserTypeStudent {
+	if userType == types.UserTypeStudent {
 		query = query.Where("active = ?", true)
 	}
 
@@ -222,7 +221,7 @@ func Update(db *gorm.DB, id uuid.UUID, input UpdateInput) (*Forum, error) {
 		}
 
 		// Check for existing forum with same title (excluding current forum)
-		if strings.ToLower(trimmedTitle) != strings.ToLower(forum.Title) {
+		if !strings.EqualFold(trimmedTitle, forum.Title) {
 			var existing Forum
 			err := db.Where("subscription_id = ? AND LOWER(title) = ? AND active = ? AND id != ?",
 				forum.SubscriptionID, strings.ToLower(trimmedTitle), true, id).

@@ -41,9 +41,15 @@ func (g *GroupAccess) CalculatePoints(db *gorm.DB) (int, error) {
 
 	// Add courses from lessons
 	if len(g.Lessons) > 0 {
+		// Convert pq.StringArray to []interface{} for GORM IN clause
+		lessonIDs := make([]interface{}, len(g.Lessons))
+		for i, id := range g.Lessons {
+			lessonIDs[i] = id
+		}
+
 		var lessonCourses []string
 		err := db.Table("lessons").
-			Where("id IN ?", g.Lessons).
+			Where("id IN ?", lessonIDs).
 			Pluck("course_id", &lessonCourses).Error
 		if err != nil {
 			return 0, err

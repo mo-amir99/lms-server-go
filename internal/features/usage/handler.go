@@ -171,3 +171,5 @@ func (h *Handler) GetCourseStats(c *gin.Context) {
 
 	response.Success(c, http.StatusOK, usageStats, "", nil)
 }
+
+

@@ -15,14 +15,14 @@ import (
 
 	coursefeature "github.com/mo-amir99/lms-server-go/internal/features/course"
 	"github.com/mo-amir99/lms-server-go/internal/features/subscription"
-	"github.com/mo-amir99/lms-server-go/internal/features/user"
 	"github.com/mo-amir99/lms-server-go/internal/features/userwatch"
+	"github.com/mo-amir99/lms-server-go/internal/middleware"
 	"github.com/mo-amir99/lms-server-go/pkg/bunny"
 	"github.com/mo-amir99/lms-server-go/pkg/cleanup"
-	"github.com/mo-amir99/lms-server-go/pkg/middleware"
 	"github.com/mo-amir99/lms-server-go/pkg/pagination"
 	"github.com/mo-amir99/lms-server-go/pkg/request"
 	"github.com/mo-amir99/lms-server-go/pkg/response"
+	"github.com/mo-amir99/lms-server-go/pkg/types"
 )
 
 // Handler processes lesson HTTP requests.
@@ -344,8 +344,10 @@ func (h *Handler) Delete(c *gin.Context) {
 	var attachmentIDs []uuid.UUID
 	for _, att := range lesson.Attachments {
 		attachmentIDs = append(attachmentIDs, att.ID)
-		// Delete attachment files from Bunny Storage
-		cleanup.DeleteAttachmentFile(c.Request.Context(), h.storageClient, h.logger, att.ID, att.Type, att.Path)
+		// Delete attachment files from Bunny Storage (standalone lesson deletion, so storageCleaned=false)
+		if err := cleanup.DeleteAttachmentFile(c.Request.Context(), h.storageClient, h.logger, att.ID, att.Type, att.Path, false); err != nil {
+			h.logger.Warn("failed to delete attachment file", "attachmentId", att.ID, "error", err)
+		}
 	}
 
 	// Delete comments for this lesson
@@ -360,8 +362,10 @@ func (h *Handler) Delete(c *gin.Context) {
 		return
 	}
 
-	// Cleanup Bunny Stream video
-	cleanup.DeleteLessonVideo(c.Request.Context(), h.streamClient, h.logger, id, lesson.VideoID)
+	// Cleanup Bunny Stream video (standalone lesson deletion, so videoCleaned=false)
+	if err := cleanup.DeleteLessonVideo(c.Request.Context(), h.streamClient, h.logger, id, lesson.VideoID, false); err != nil {
+		h.logger.Warn("failed to delete lesson video", "lessonId", id, "error", err)
+	}
 
 	response.Success(c, http.StatusOK, true, "", nil)
 }
@@ -420,14 +424,23 @@ func (h *Handler) GetVideoURL(c *gin.Context) {
 		return
 	}
 
-	if usr.UserType != user.UserTypeStudent {
+	if usr.UserType != types.UserTypeStudent {
 		response.Success(c, http.StatusOK, gin.H{"videoUrl": signedURL}, "", nil)
 		return
 	}
 
 	var sub subscription.Subscription
 	if usr.Subscription != nil && usr.Subscription.ID == subscriptionID {
-		sub = *usr.Subscription
+		// Load full subscription from database
+		sub, err = subscription.Get(h.db, subscriptionID)
+		if err != nil {
+			if errors.Is(err, subscription.ErrSubscriptionNotFound) {
+				response.ErrorWithLog(h.logger, c, http.StatusNotFound, "subscription not found", err)
+			} else {
+				response.ErrorWithLog(h.logger, c, http.StatusInternalServerError, "failed to load subscription", err)
+			}
+			return
+		}
 	} else {
 		sub, err = subscription.Get(h.db, subscriptionID)
 		if err != nil {
@@ -561,70 +574,16 @@ func (h *Handler) GetUploadURL(c *gin.Context) {
 		return
 	}
 
-	// Generate video upload info
-	uploadInfo, err := h.streamClient.GenerateVideoUploadInfo(c.Request.Context(), req.LessonName, *course.CollectionID, 86400) // 24 hour expiration
+	// Generate TUS upload info for resumable uploads (6 hour expiration)
+	// TUS protocol allows uploads to resume if connection is interrupted
+	// Large videos (1-2GB) can take 2-4 hours on slow internet
+	tusInfo, err := h.streamClient.GenerateTusUploadInfo(c.Request.Context(), req.LessonName, *course.CollectionID, 21600) // 6 hours
 	if err != nil {
-		response.ErrorWithLog(h.logger, c, http.StatusInternalServerError, "failed to generate upload URL", err)
+		response.ErrorWithLog(h.logger, c, http.StatusInternalServerError, "failed to generate TUS upload info", err)
 		return
 	}
 
-	response.Success(c, http.StatusOK, uploadInfo, "Upload URL generated successfully", nil)
-}
-
-// GetCreationStatus returns a compatibility response for legacy queue-based lesson creation checks.
-func (h *Handler) GetCreationStatus(c *gin.Context) {
-	subscriptionParam := c.Param("subscriptionId")
-	if _, err := uuid.Parse(subscriptionParam); err != nil {
-		response.ErrorWithLog(h.logger, c, http.StatusBadRequest, "invalid subscription id", err)
-		return
-	}
-
-	jobID := strings.TrimSpace(c.Param("jobId"))
-	if jobID == "" {
-		response.ErrorWithLog(h.logger, c, http.StatusBadRequest, "job id is required", ErrJobIDRequired)
-		return
-	}
-
-	data := gin.H{
-		"jobId":         jobID,
-		"status":        "unsupported",
-		"queueDisabled": true,
-		"message":       "Lesson upload queue replaced by direct Bunny uploads.",
-	}
-
-	response.Success(c, http.StatusOK, data, "Upload queue disabled; poll direct upload session state instead.", nil)
-}
-
-// GetQueueStats returns zeroed queue metrics to keep legacy clients functional during migration.
-func (h *Handler) GetQueueStats(c *gin.Context) {
-	subscriptionParam := c.Param("subscriptionId")
-	if _, err := uuid.Parse(subscriptionParam); err != nil {
-		response.ErrorWithLog(h.logger, c, http.StatusBadRequest, "invalid subscription id", err)
-		return
-	}
-
-	data := gin.H{
-		"queueDisabled":                 true,
-		"lessonsUploadMode":             "direct",
-		"waiting":                       0,
-		"queueLength":                   0,
-		"active":                        0,
-		"activeUploads":                 0,
-		"completed":                     0,
-		"failed":                        0,
-		"maxGlobalUploads":              0,
-		"maxSubscriptionUploads":        0,
-		"activeUploadsPerSubscription":  gin.H{},
-		"waitingUploadsPerSubscription": gin.H{},
-		"globalActiveReservations":      0,
-		"queueDetails": gin.H{
-			"activeJobs":  []interface{}{},
-			"waitingJobs": []interface{}{},
-			"delayedJobs": []interface{}{},
-		},
-	}
-
-	response.Success(c, http.StatusOK, data, "Upload queue disabled; metrics default to zero.", nil)
+	response.Success(c, http.StatusOK, tusInfo, "TUS upload info generated successfully", nil)
 }
 
 func (h *Handler) respondError(c *gin.Context, err error, fallback string) {
@@ -644,9 +603,6 @@ func (h *Handler) respondError(c *gin.Context, err error, fallback string) {
 	case errors.Is(err, ErrNameLength):
 		status = http.StatusBadRequest
 		message = "Lesson name must be between 3 and 80 characters."
-	case errors.Is(err, ErrOrderTaken):
-		status = http.StatusConflict
-		message = "Lesson order already exists for this course."
 	case errors.Is(err, ErrVideoIDRequired):
 		status = http.StatusBadRequest
 		message = "Video ID is required."

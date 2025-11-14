@@ -201,7 +201,7 @@ func Create(db *gorm.DB, input CreateInput) (Payment, error) {
 	}
 
 	// Default currency
-	currency := types.CurrencyEGP
+	currency := types.CurrencyUSD
 	if input.Currency != nil {
 		currency = *input.Currency
 	}

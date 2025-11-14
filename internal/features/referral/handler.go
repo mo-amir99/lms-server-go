@@ -12,9 +12,10 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/mo-amir99/lms-server-go/internal/features/user"
-	"github.com/mo-amir99/lms-server-go/pkg/middleware"
+	"github.com/mo-amir99/lms-server-go/internal/middleware"
 	"github.com/mo-amir99/lms-server-go/pkg/request"
 	"github.com/mo-amir99/lms-server-go/pkg/response"
+	"github.com/mo-amir99/lms-server-go/pkg/types"
 )
 
 // Handler processes referral HTTP requests.
@@ -39,9 +40,9 @@ func (h *Handler) List(c *gin.Context) {
 	var referrerID *uuid.UUID
 
 	// REFERRER users can only see their own referrals
-	if currentUser.UserType == user.UserTypeReferrer {
+	if currentUser.UserType == types.UserTypeReferrer {
 		referrerID = &currentUser.ID
-	} else if user.CanManageUserType(currentUser.UserType, user.UserTypeReferrer) {
+	} else if user.CanManageUserType(currentUser.UserType, types.UserTypeReferrer) {
 		// Admins/Superadmins can filter by referrer
 		if referrerParam := c.Query("referrer"); referrerParam != "" {
 			id, err := uuid.Parse(referrerParam)
@@ -101,7 +102,7 @@ func (h *Handler) Create(c *gin.Context) {
 	var referrerID uuid.UUID
 
 	// REFERRER users can only create referrals for themselves
-	if currentUser.UserType == user.UserTypeReferrer {
+	if currentUser.UserType == types.UserTypeReferrer {
 		referrerID = currentUser.ID
 	} else {
 		if req.ReferrerID == nil || *req.ReferrerID == "" {
@@ -127,7 +128,7 @@ func (h *Handler) Create(c *gin.Context) {
 			return
 		}
 
-		if referrer.UserType != user.UserTypeReferrer {
+		if referrer.UserType != types.UserTypeReferrer {
 			response.ErrorWithLog(h.logger, c, http.StatusBadRequest, "Selected user is not a referrer.", ErrInvalidReferrerType)
 			return
 		}

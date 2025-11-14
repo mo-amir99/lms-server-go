@@ -23,7 +23,7 @@ import (
 	"github.com/mo-amir99/lms-server-go/internal/features/subscription"
 	"github.com/mo-amir99/lms-server-go/internal/features/user"
 	"github.com/mo-amir99/lms-server-go/internal/features/userwatch"
-	"github.com/mo-amir99/lms-server-go/pkg/middleware"
+	"github.com/mo-amir99/lms-server-go/internal/middleware"
 	"github.com/mo-amir99/lms-server-go/pkg/response"
 	"github.com/mo-amir99/lms-server-go/pkg/streamcache"
 )
@@ -615,3 +615,5 @@ func serializeActiveStreams() []gin.H {
 	}
 	return result
 }
+
+

@@ -9,9 +9,9 @@ import (
 
 	"github.com/mo-amir99/lms-server-go/internal/features/groupaccess"
 	"github.com/mo-amir99/lms-server-go/internal/features/subscription"
-	"github.com/mo-amir99/lms-server-go/internal/features/user"
-	"github.com/mo-amir99/lms-server-go/pkg/middleware"
+	"github.com/mo-amir99/lms-server-go/internal/middleware"
 	"github.com/mo-amir99/lms-server-go/pkg/response"
+	"github.com/mo-amir99/lms-server-go/pkg/types"
 )
 
 type Handler struct {
@@ -323,7 +323,7 @@ func (h *Handler) UpdateStudentPermissions(c *gin.Context) {
 
 	// Check if user is the host (or admin/superadmin)
 	isHost := meeting.HostID == currentUser.ID.String()
-	isAdmin := currentUser.UserType == user.UserTypeAdmin || currentUser.UserType == user.UserTypeSuperAdmin
+	isAdmin := currentUser.UserType == types.UserTypeAdmin || currentUser.UserType == types.UserTypeSuperAdmin
 
 	if !isHost && !isAdmin {
 		response.Error(c, http.StatusForbidden, "Only the meeting host can update student permissions", nil)
@@ -361,7 +361,7 @@ func (h *Handler) EndMeeting(c *gin.Context) {
 
 	// Check if user is the host (or admin/superadmin)
 	isHost := meeting.HostID == currentUser.ID.String()
-	isAdmin := currentUser.UserType == user.UserTypeAdmin || currentUser.UserType == user.UserTypeSuperAdmin
+	isAdmin := currentUser.UserType == types.UserTypeAdmin || currentUser.UserType == types.UserTypeSuperAdmin
 
 	if !isHost && !isAdmin {
 		response.Error(c, http.StatusForbidden, "Only the meeting host can end the meeting", nil)

@@ -1,6 +1,10 @@
 package attachment
 
-import "errors"
+import (
+	"errors"
+
+	"github.com/mo-amir99/lms-server-go/pkg/types"
+)
 
 var (
 	ErrAttachmentNotFound = errors.New("attachment not found")
@@ -9,16 +13,13 @@ var (
 	ErrInvalidType        = errors.New("invalid attachment type")
 )
 
-// AttachmentType constants
-const (
-	TypePDF   = "pdf"
-	TypeMCQ   = "mcq"
-	TypeImage = "image"
-	TypeAudio = "audio"
-	TypeLink  = "link"
-)
-
 // ValidTypes returns all valid attachment types.
 func ValidTypes() []string {
-	return []string{TypePDF, TypeMCQ, TypeImage, TypeAudio, TypeLink}
+	return []string{
+		string(types.AttachmentTypePDF),
+		string(types.AttachmentTypeMCQ),
+		string(types.AttachmentTypeImage),
+		string(types.AttachmentTypeAudio),
+		string(types.AttachmentTypeLink),
+	}
 }

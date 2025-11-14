@@ -5,14 +5,12 @@ import (
 )
 
 // RegisterRoutes sets up referral endpoints under /referrals.
-// Auth middleware should be applied at the router group level before calling this.
-func RegisterRoutes(router *gin.RouterGroup, handler *Handler) {
+func RegisterRoutes(router *gin.RouterGroup, handler *Handler, referralAccess, adminOnly []gin.HandlerFunc) {
 	referrals := router.Group("/referrals")
-	{
-		referrals.GET("", handler.List)
-		referrals.POST("", handler.Create)
-		referrals.GET("/:referralId", handler.GetByID)
-		referrals.PUT("/:referralId", handler.Update)
-		referrals.DELETE("/:referralId", handler.Delete)
-	}
+
+	referrals.GET("", append(referralAccess, handler.List)...)
+	referrals.POST("", append(referralAccess, handler.Create)...)
+	referrals.GET("/:referralId", append(referralAccess, handler.GetByID)...)
+	referrals.PUT("/:referralId", append(referralAccess, handler.Update)...)
+	referrals.DELETE("/:referralId", append(adminOnly, handler.Delete)...)
 }

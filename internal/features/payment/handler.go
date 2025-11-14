@@ -388,3 +388,5 @@ func (h *Handler) respondError(c *gin.Context, err error, fallback string) {
 
 	response.ErrorWithLog(h.logger, c, status, message, err)
 }
+
+

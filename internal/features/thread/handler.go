@@ -11,10 +11,11 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/mo-amir99/lms-server-go/internal/features/user"
-	"github.com/mo-amir99/lms-server-go/pkg/middleware"
+	"github.com/mo-amir99/lms-server-go/internal/middleware"
 	"github.com/mo-amir99/lms-server-go/pkg/pagination"
 	"github.com/mo-amir99/lms-server-go/pkg/request"
 	"github.com/mo-amir99/lms-server-go/pkg/response"
+	"github.com/mo-amir99/lms-server-go/pkg/types"
 )
 
 // Handler processes thread HTTP requests.
@@ -228,7 +229,7 @@ func (h *Handler) DeleteReply(c *gin.Context) {
 	}
 
 	// Check authorization: only instructors, assistants, admins, superadmins can delete replies
-	if !user.CanManageUserType(currentUser.UserType, user.UserTypeStudent) {
+	if !user.CanManageUserType(currentUser.UserType, types.UserTypeStudent) {
 		response.ErrorWithLog(h.logger, c, http.StatusForbidden, "unauthorized to delete replies", ErrUnauthorized)
 		return
 	}

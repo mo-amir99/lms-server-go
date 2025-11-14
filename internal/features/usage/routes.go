@@ -1,41 +1,29 @@
 package usage
 
 import (
-	"log/slog"
-
 	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"
-
-	"github.com/mo-amir99/lms-server-go/pkg/middleware"
-	"github.com/mo-amir99/lms-server-go/pkg/types"
 )
 
-func RegisterRoutes(router *gin.RouterGroup, handler *Handler, db *gorm.DB, jwtSecret string, logger *slog.Logger) {
+func RegisterRoutes(router *gin.RouterGroup, handler *Handler, adminOnly, acAdmin, acStaffWithInactive []gin.HandlerFunc) {
 	usage := router.Group("/usage")
 	{
 		usage.GET("/system",
 			append(
-				middleware.AccessControl(db, jwtSecret, logger, []types.UserType{types.UserTypeAdmin}, middleware.WithoutSubscriptionEnforcement()),
+				adminOnly,
 				handler.GetSystemStats,
 			)...,
 		)
 
 		usage.GET("/subscription/:subscriptionId",
 			append(
-				middleware.AccessControl(db, jwtSecret, logger, []types.UserType{types.UserTypeAdmin}),
+				acAdmin,
 				handler.GetSubscriptionStats,
 			)...,
 		)
 
 		usage.GET("/subscription/:subscriptionId/course/:courseId",
 			append(
-				middleware.AccessControl(
-					db,
-					jwtSecret,
-					logger,
-					[]types.UserType{types.UserTypeAdmin, types.UserTypeInstructor, types.UserTypeAssistant},
-					middleware.WithAllowInactiveSubscription(),
-				),
+				acStaffWithInactive,
 				handler.GetCourseStats,
 			)...,
 		)

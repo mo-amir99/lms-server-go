@@ -23,9 +23,16 @@ const (
 // Re-export PaymentMethod constants from types for backward compatibility
 const (
 	MethodCash         = types.PaymentMethodCash
-	MethodBankTransfer = types.PaymentMethodBankTransfer
+	MethodInstapay     = types.PaymentMethodInstapay
 	MethodCreditCard   = types.PaymentMethodCreditCard
+	MethodCrypto       = types.PaymentMethodCrypto
+	MethodMobileWallet = types.PaymentMethodMobileWallet
+	MethodBankTransfer = types.PaymentMethodBankTransfer
+	MethodGooglePlay   = types.PaymentMethodGooglePlay
+	MethodAppStore     = types.PaymentMethodAppStore
 	MethodPayPal       = types.PaymentMethodPayPal
+	MethodPayoneer     = types.PaymentMethodPayoneer
+	MethodStripe       = types.PaymentMethodStripe
 	MethodOther        = types.PaymentMethodOther
 )
 

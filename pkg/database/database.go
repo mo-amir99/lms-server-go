@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"math"
 	"time"
 
 	"gorm.io/driver/postgres"
@@ -27,8 +28,59 @@ import (
 	"github.com/mo-amir99/lms-server-go/pkg/config"
 )
 
-// Connect establishes a GORM connection using the provided configuration.
+// Connect establishes a GORM connection using the provided configuration with retry logic.
 func Connect(ctx context.Context, cfg config.DatabaseConfig, log *slog.Logger) (*gorm.DB, error) {
+	return ConnectWithRetry(ctx, cfg, log, 5, 1*time.Second)
+}
+
+// ConnectWithRetry establishes a GORM connection with configurable retry logic.
+// It uses exponential backoff with jitter for retries.
+func ConnectWithRetry(ctx context.Context, cfg config.DatabaseConfig, log *slog.Logger, maxRetries int, initialBackoff time.Duration) (*gorm.DB, error) {
+	var db *gorm.DB
+	var err error
+
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			// Calculate exponential backoff with jitter
+			backoff := time.Duration(float64(initialBackoff) * math.Pow(2, float64(attempt-1)))
+			// Add jitter (up to 25% of backoff time)
+			jitter := time.Duration(float64(backoff) * 0.25 * float64(time.Now().UnixNano()%100) / 100.0)
+			sleepTime := backoff + jitter
+
+			log.Warn("retrying database connection",
+				slog.Int("attempt", attempt),
+				slog.Int("max_retries", maxRetries),
+				slog.Duration("backoff", sleepTime),
+				slog.String("error", err.Error()),
+			)
+
+			select {
+			case <-ctx.Done():
+				return nil, fmt.Errorf("connection cancelled: %w", ctx.Err())
+			case <-time.After(sleepTime):
+			}
+		}
+
+		db, err = connectOnce(ctx, cfg, log)
+		if err == nil {
+			if attempt > 0 {
+				log.Info("database connection established after retry", slog.Int("attempts", attempt+1))
+			}
+			return db, nil
+		}
+
+		log.Error("database connection attempt failed",
+			slog.Int("attempt", attempt+1),
+			slog.Int("max_retries", maxRetries+1),
+			slog.String("error", err.Error()),
+		)
+	}
+
+	return nil, fmt.Errorf("failed to connect after %d attempts: %w", maxRetries+1, err)
+}
+
+// connectOnce attempts a single database connection without retry logic.
+func connectOnce(ctx context.Context, cfg config.DatabaseConfig, log *slog.Logger) (*gorm.DB, error) {
 	// Use custom logger with metrics integration
 	gormLogger := NewCustomLogger(log, 200*time.Millisecond)
 
@@ -48,6 +100,7 @@ func Connect(ctx context.Context, cfg config.DatabaseConfig, log *slog.Logger) (
 		return nil, fmt.Errorf("get sql db: %w", err)
 	}
 
+	// Configure connection pool
 	if cfg.MaxIdleConns > 0 {
 		sqlDB.SetMaxIdleConns(cfg.MaxIdleConns)
 	}
@@ -61,11 +114,18 @@ func Connect(ctx context.Context, cfg config.DatabaseConfig, log *slog.Logger) (
 		sqlDB.SetConnMaxIdleTime(time.Duration(cfg.ConnMaxIdleTime) * time.Second)
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	// Ping database to verify connection
+	pingCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	if err := sqlDB.PingContext(ctx); err != nil {
+	if err := sqlDB.PingContext(pingCtx); err != nil {
 		return nil, fmt.Errorf("ping database: %w", err)
+	}
+
+	// Register reconnect plugin for automatic reconnection on failures
+	reconnectPlugin := NewReconnectPlugin(log)
+	if err := db.Use(reconnectPlugin); err != nil {
+		return nil, fmt.Errorf("register reconnect plugin: %w", err)
 	}
 
 	// Enable UUID extension for PostgreSQL

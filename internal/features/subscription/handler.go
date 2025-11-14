@@ -13,6 +13,8 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
+	"github.com/mo-amir99/lms-server-go/pkg/bunny"
+	"github.com/mo-amir99/lms-server-go/pkg/cleanup"
 	"github.com/mo-amir99/lms-server-go/pkg/pagination"
 	"github.com/mo-amir99/lms-server-go/pkg/request"
 	"github.com/mo-amir99/lms-server-go/pkg/response"
@@ -22,13 +24,20 @@ import (
 
 // Handler processes subscription HTTP requests.
 type Handler struct {
-	db     *gorm.DB
-	logger *slog.Logger
+	db            *gorm.DB
+	logger        *slog.Logger
+	streamClient  *bunny.StreamClient
+	storageClient *bunny.StorageClient
 }
 
 // NewHandler constructs a subscription handler instance.
-func NewHandler(db *gorm.DB, logger *slog.Logger) *Handler {
-	return &Handler{db: db, logger: logger}
+func NewHandler(db *gorm.DB, logger *slog.Logger, streamClient *bunny.StreamClient, storageClient *bunny.StorageClient) *Handler {
+	return &Handler{
+		db:            db,
+		logger:        logger,
+		streamClient:  streamClient,
+		storageClient: storageClient,
+	}
 }
 
 // List returns paginated subscriptions.
@@ -374,8 +383,16 @@ func (h *Handler) Delete(c *gin.Context) {
 		return
 	}
 
-	if err := Delete(h.db, id); err != nil {
-		h.respondError(c, err, "failed to delete subscription")
+	// Check if subscription exists first
+	_, err = Get(h.db, id)
+	if err != nil {
+		h.respondError(c, err, "failed to load subscription")
+		return
+	}
+
+	// Use comprehensive cleanup function that handles all related data
+	if err := cleanup.CleanupSubscription(c.Request.Context(), h.db, h.streamClient, h.storageClient, h.logger, id, true); err != nil {
+		response.ErrorWithLog(h.logger, c, http.StatusInternalServerError, "failed to cleanup subscription", err)
 		return
 	}
 

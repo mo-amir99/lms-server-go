@@ -44,8 +44,10 @@ const (
 type Currency string
 
 const (
-	CurrencyEGP Currency = "EGP"
 	CurrencyUSD Currency = "USD"
+	CurrencyEGP Currency = "EGP"
+	CurrencySAR Currency = "SAR"
+	CurrencyAED Currency = "AED"
 	CurrencyEUR Currency = "EUR"
 	CurrencyGBP Currency = "GBP"
 )
@@ -54,10 +56,11 @@ const (
 type AttachmentType string
 
 const (
-	AttachmentTypePDF   AttachmentType = "PDF"
-	AttachmentTypeAudio AttachmentType = "Audio"
-	AttachmentTypeImage AttachmentType = "Image"
-	AttachmentTypeMCQ   AttachmentType = "MCQ"
+	AttachmentTypePDF   AttachmentType = "pdf"
+	AttachmentTypeAudio AttachmentType = "audio"
+	AttachmentTypeImage AttachmentType = "image"
+	AttachmentTypeMCQ   AttachmentType = "mcq"
+	AttachmentTypeLink  AttachmentType = "link"
 )
 
 // PaymentMethod represents payment methods
@@ -65,11 +68,16 @@ type PaymentMethod string
 
 const (
 	PaymentMethodCash         PaymentMethod = "cash"
-	PaymentMethodVodafoneCash PaymentMethod = "vodafone_cash"
 	PaymentMethodInstapay     PaymentMethod = "instapay"
-	PaymentMethodBankTransfer PaymentMethod = "bank_transfer"
 	PaymentMethodCreditCard   PaymentMethod = "credit_card"
+	PaymentMethodCrypto       PaymentMethod = "crypto"
+	PaymentMethodMobileWallet PaymentMethod = "mobile_wallet"
+	PaymentMethodBankTransfer PaymentMethod = "bank_transfer"
+	PaymentMethodGooglePlay   PaymentMethod = "google_play"
+	PaymentMethodAppStore     PaymentMethod = "app_store"
 	PaymentMethodPayPal       PaymentMethod = "paypal"
+	PaymentMethodPayoneer     PaymentMethod = "payoneer"
+	PaymentMethodStripe       PaymentMethod = "stripe"
 	PaymentMethodOther        PaymentMethod = "other"
 )
 

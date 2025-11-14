@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -57,11 +58,8 @@ func (h *Handler) List(c *gin.Context) {
 }
 
 // Create inserts a new attachment.
-// For file-based attachments (pdf, audio, image), the client should:
-// 1. Request an upload URL via GetAttachmentUploadURL
-// 2. Upload the file directly to Bunny Storage using the signed URL
-// 3. Call this endpoint with the CDN path in the 'path' field
-// For link and mcq attachments, the 'path' field contains the link URL or is omitted.
+// For file-based attachments (pdf, audio, image), expects multipart/form-data with a 'file' field.
+// For link and mcq attachments, expects application/json.
 func (h *Handler) Create(c *gin.Context) {
 	lessonID, err := uuid.Parse(c.Param("lessonId"))
 	if err != nil {
@@ -69,37 +67,145 @@ func (h *Handler) Create(c *gin.Context) {
 		return
 	}
 
-	var req struct {
-		Name      string           `json:"name" binding:"required"`
-		Type      string           `json:"type" binding:"required"`
-		Path      *string          `json:"path"` // CDN URL for uploaded files, link URL for link type, or omitted for mcq
-		Order     *int             `json:"order"`
-		Active    *bool            `json:"isActive"`
-		Questions *json.RawMessage `json:"questions"`
-	}
-
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.ErrorWithLog(h.logger, c, http.StatusBadRequest, "invalid attachment payload", err)
+	subscriptionID, err := uuid.Parse(c.Param("subscriptionId"))
+	if err != nil {
+		response.ErrorWithLog(h.logger, c, http.StatusBadRequest, "invalid subscription id", err)
 		return
 	}
 
-	var questionsJSON *types.JSON
-	if req.Questions != nil {
-		parsed, err := normalizeQuestions(*req.Questions)
-		if err != nil {
-			response.ErrorWithLog(h.logger, c, http.StatusBadRequest, "invalid questions payload", err)
-			return
-		}
-		questionsJSON = parsed
+	courseID, err := uuid.Parse(c.Param("courseId"))
+	if err != nil {
+		response.ErrorWithLog(h.logger, c, http.StatusBadRequest, "invalid course id", err)
+		return
 	}
 
+	// Determine content type
+	contentType := c.ContentType()
+	isMultipart := contentType != "" && (contentType == "multipart/form-data" ||
+		bytes.Contains([]byte(contentType), []byte("multipart/form-data")))
+
+	var name, attachmentType string
+	var path *string
+	var order *int
+	var active *bool
+	var questionsJSON *types.JSON
+
+	if isMultipart {
+		// Parse multipart form data (for file uploads: pdf, audio, image)
+		if err := c.Request.ParseMultipartForm(32 << 20); err != nil { // 32 MB max memory
+			response.ErrorWithLog(h.logger, c, http.StatusBadRequest, "failed to parse multipart form", err)
+			return
+		}
+
+		name = c.PostForm("name")
+		attachmentType = c.PostForm("type")
+
+		if orderStr := c.PostForm("order"); orderStr != "" {
+			if val, err := strconv.Atoi(orderStr); err == nil {
+				order = &val
+			}
+		}
+
+		if activeStr := c.PostForm("isActive"); activeStr != "" {
+			val := activeStr == "true"
+			active = &val
+		}
+
+		// Validate required fields
+		if name == "" || attachmentType == "" {
+			response.ErrorWithLog(h.logger, c, http.StatusBadRequest, "name and type are required", errors.New("missing fields"))
+			return
+		}
+
+		// Check if this type requires a file
+		fileTypes := map[string]bool{"pdf": true, "audio": true, "image": true}
+		if fileTypes[attachmentType] {
+			file, header, err := c.Request.FormFile("file")
+			if err != nil {
+				response.ErrorWithLog(h.logger, c, http.StatusBadRequest, "file is required for this type", err)
+				return
+			}
+			defer file.Close()
+
+			// Get subscription identifier for path construction
+			var subscription struct {
+				IdentifierName string
+			}
+			if err := h.db.Table("subscriptions").
+				Select("identifier_name").
+				Where("id = ?", subscriptionID).
+				First(&subscription).Error; err != nil {
+				response.ErrorWithLog(h.logger, c, http.StatusInternalServerError, "failed to load subscription", err)
+				return
+			}
+
+			// Construct remote path
+			folderMap := map[string]string{"pdf": "pdfs", "audio": "audios", "image": "images"}
+			ext := filepath.Ext(header.Filename)
+			randomName := fmt.Sprintf("%d_%d%s", time.Now().Unix(), time.Now().Nanosecond(), ext)
+			remotePath := fmt.Sprintf("%s/%s/attachments/%s/%s",
+				subscription.IdentifierName, courseID, folderMap[attachmentType], randomName)
+
+			// Upload to Bunny Storage
+			cdnURL, err := h.storageClient.UploadStream(c.Request.Context(), remotePath, file, header.Header.Get("Content-Type"))
+			if err != nil {
+				response.ErrorWithLog(h.logger, c, http.StatusInternalServerError, "failed to upload to CDN", err)
+				return
+			}
+
+			path = &cdnURL
+
+		} else if attachmentType == "link" {
+			// For link type, path should be in form data
+			if linkPath := c.PostForm("path"); linkPath != "" {
+				path = &linkPath
+			} else {
+				response.ErrorWithLog(h.logger, c, http.StatusBadRequest, "path is required for link type", errors.New("missing path"))
+				return
+			}
+		}
+		// For MCQ, path is optional
+
+	} else {
+		// Parse JSON (for link and mcq types without files)
+		var req struct {
+			Name      string           `json:"name" binding:"required"`
+			Type      string           `json:"type" binding:"required"`
+			Path      *string          `json:"path"`
+			Order     *int             `json:"order"`
+			Active    *bool            `json:"isActive"`
+			Questions *json.RawMessage `json:"questions"`
+		}
+
+		if err := c.ShouldBindJSON(&req); err != nil {
+			response.ErrorWithLog(h.logger, c, http.StatusBadRequest, "invalid attachment payload", err)
+			return
+		}
+
+		name = req.Name
+		attachmentType = req.Type
+		path = req.Path
+		order = req.Order
+		active = req.Active
+
+		if req.Questions != nil {
+			parsed, err := normalizeQuestions(*req.Questions)
+			if err != nil {
+				response.ErrorWithLog(h.logger, c, http.StatusBadRequest, "invalid questions payload", err)
+				return
+			}
+			questionsJSON = parsed
+		}
+	}
+
+	// Create attachment record
 	attachment, err := Create(h.db, CreateInput{
 		LessonID:  lessonID,
-		Name:      req.Name,
-		Type:      req.Type,
-		Path:      req.Path,
-		Order:     req.Order,
-		Active:    req.Active,
+		Name:      name,
+		Type:      attachmentType,
+		Path:      path,
+		Order:     order,
+		Active:    active,
 		Questions: questionsJSON,
 	})
 
@@ -239,110 +345,16 @@ func (h *Handler) Delete(c *gin.Context) {
 		return
 	}
 
-	// Cleanup Bunny Storage file (for pdf/audio/image types)
-	cleanup.DeleteAttachmentFile(c.Request.Context(), h.storageClient, h.logger, id, attachment.Type, attachment.Path)
+	// Cleanup Bunny Storage file (standalone attachment deletion, so storageCleaned=false)
+	if err := cleanup.DeleteAttachmentFile(c.Request.Context(), h.storageClient, h.logger, id, attachment.Type, attachment.Path, false); err != nil {
+		h.logger.Warn("failed to delete attachment file", "attachmentId", id, "error", err)
+	}
 
 	if err := h.db.Exec(`UPDATE lessons SET attachments = array_remove(COALESCE(attachments, '{}'::uuid[]), ?) WHERE id = ?`, id, attachment.LessonID).Error; err != nil {
 		h.logger.Error("failed to remove attachment id from lesson", "lessonId", attachment.LessonID, "attachmentId", id, "error", err)
 	}
 
 	response.Success(c, http.StatusOK, true, "", nil)
-}
-
-// GetAttachmentUploadURL generates a signed Bunny Storage upload URL for direct client uploads.
-// This enables attachments (pdf, audio, image) to be uploaded directly to Bunny Storage without
-// passing through the server, similar to how lesson videos are uploaded to Bunny Stream.
-func (h *Handler) GetAttachmentUploadURL(c *gin.Context) {
-	subscriptionID, err := uuid.Parse(c.Param("subscriptionId"))
-	if err != nil {
-		response.ErrorWithLog(h.logger, c, http.StatusBadRequest, "invalid subscription id", err)
-		return
-	}
-
-	courseID, err := uuid.Parse(c.Param("courseId"))
-	if err != nil {
-		response.ErrorWithLog(h.logger, c, http.StatusBadRequest, "invalid course id", err)
-		return
-	}
-
-	lessonID, err := uuid.Parse(c.Param("lessonId"))
-	if err != nil {
-		response.ErrorWithLog(h.logger, c, http.StatusBadRequest, "invalid lesson id", err)
-		return
-	}
-
-	var req struct {
-		FileName    string `json:"fileName" binding:"required"`
-		ContentType string `json:"contentType" binding:"required"`
-		Type        string `json:"type" binding:"required"` // pdf, audio, image
-	}
-
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.ErrorWithLog(h.logger, c, http.StatusBadRequest, "invalid request payload", err)
-		return
-	}
-
-	// Validate attachment type
-	validTypes := map[string]bool{"pdf": true, "audio": true, "image": true}
-	if !validTypes[req.Type] {
-		response.ErrorWithLog(h.logger, c, http.StatusBadRequest, "invalid attachment type, must be pdf, audio, or image", nil)
-		return
-	}
-
-	// Verify lesson exists
-	var lesson struct {
-		ID       uuid.UUID
-		CourseID uuid.UUID
-	}
-	if err := h.db.Table("lessons").
-		Select("id, course_id").
-		Where("id = ? AND course_id = ?", lessonID, courseID).
-		First(&lesson).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			response.ErrorWithLog(h.logger, c, http.StatusNotFound, "lesson not found", err)
-			return
-		}
-		response.ErrorWithLog(h.logger, c, http.StatusInternalServerError, "failed to verify lesson", err)
-		return
-	}
-
-	// Verify course exists and belongs to subscription
-	var course struct {
-		ID             uuid.UUID
-		SubscriptionID uuid.UUID
-	}
-	if err := h.db.Table("courses").
-		Select("id, subscription_id").
-		Where("id = ? AND subscription_id = ?", courseID, subscriptionID).
-		First(&course).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			response.ErrorWithLog(h.logger, c, http.StatusNotFound, "course not found", err)
-			return
-		}
-		response.ErrorWithLog(h.logger, c, http.StatusInternalServerError, "failed to verify course", err)
-		return
-	}
-
-	// Get subscription identifier for path construction
-	var subscription struct {
-		IdentifierName string
-	}
-	if err := h.db.Table("subscriptions").
-		Select("identifier_name").
-		Where("id = ?", subscriptionID).
-		First(&subscription).Error; err != nil {
-		response.ErrorWithLog(h.logger, c, http.StatusInternalServerError, "failed to load subscription", err)
-		return
-	}
-
-	// Construct remote path: {identifierName}/{courseId}/attachments/{type}s/{fileName}
-	folderMap := map[string]string{"pdf": "pdfs", "audio": "audios", "image": "images"}
-	remotePath := fmt.Sprintf("%s/%s/attachments/%s/%s", subscription.IdentifierName, courseID, folderMap[req.Type], req.FileName)
-
-	// Generate signed upload URL with 24-hour expiration
-	uploadInfo := h.storageClient.GenerateUploadURL(remotePath, req.ContentType, 24*time.Hour)
-
-	response.Success(c, http.StatusOK, uploadInfo, "Upload URL generated successfully", nil)
 }
 
 func (h *Handler) respondError(c *gin.Context, err error, fallback string) {
