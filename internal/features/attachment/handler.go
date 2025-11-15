@@ -2,9 +2,11 @@ package attachment
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"path/filepath"
 	"strconv"
@@ -17,6 +19,7 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
+	"github.com/mo-amir99/lms-server-go/internal/services/storageusage"
 	"github.com/mo-amir99/lms-server-go/pkg/bunny"
 	"github.com/mo-amir99/lms-server-go/pkg/cleanup"
 	"github.com/mo-amir99/lms-server-go/pkg/request"
@@ -24,19 +27,27 @@ import (
 	"github.com/mo-amir99/lms-server-go/pkg/types"
 )
 
+var fileAttachmentTypes = map[string]struct{}{
+	"pdf":   {},
+	"audio": {},
+	"image": {},
+}
+
 // Handler processes attachment HTTP requests.
 type Handler struct {
 	db            *gorm.DB
 	logger        *slog.Logger
 	storageClient *bunny.StorageClient
+	storageUsage  *storageusage.Service
 }
 
 // NewHandler constructs an attachment handler instance.
-func NewHandler(db *gorm.DB, logger *slog.Logger, storageClient *bunny.StorageClient) *Handler {
+func NewHandler(db *gorm.DB, logger *slog.Logger, storageClient *bunny.StorageClient, storageUsage *storageusage.Service) *Handler {
 	return &Handler{
 		db:            db,
 		logger:        logger,
 		storageClient: storageClient,
+		storageUsage:  storageUsage,
 	}
 }
 
@@ -89,6 +100,7 @@ func (h *Handler) Create(c *gin.Context) {
 	var order *int
 	var active *bool
 	var questionsJSON *types.JSON
+	isFileAttachment := false
 
 	if isMultipart {
 		// Parse multipart form data (for file uploads: pdf, audio, image)
@@ -98,7 +110,7 @@ func (h *Handler) Create(c *gin.Context) {
 		}
 
 		name = c.PostForm("name")
-		attachmentType = c.PostForm("type")
+		attachmentType = strings.ToLower(c.PostForm("type"))
 
 		if orderStr := c.PostForm("order"); orderStr != "" {
 			if val, err := strconv.Atoi(orderStr); err == nil {
@@ -117,9 +129,34 @@ func (h *Handler) Create(c *gin.Context) {
 			return
 		}
 
-		// Check if this type requires a file
-		fileTypes := map[string]bool{"pdf": true, "audio": true, "image": true}
-		if fileTypes[attachmentType] {
+		requiresFileAttachment := isFileAttachmentType(attachmentType)
+		var storageMeta *courseStorageMeta
+		if requiresFileAttachment {
+			meta, err := h.loadCourseStorageMeta(subscriptionID, courseID)
+			if err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					response.ErrorWithLog(h.logger, c, http.StatusNotFound, "subscription or course not found", err)
+				} else {
+					response.ErrorWithLog(h.logger, c, http.StatusInternalServerError, "failed to load course storage metadata", err)
+				}
+				return
+			}
+			storageMeta = &meta
+			isFileAttachment = true
+
+			if meta.CourseLimitInGB > 0 && meta.StorageUsageInGB >= meta.CourseLimitInGB {
+				currentUsage := round2(meta.StorageUsageInGB)
+				response.ErrorWithData(h.logger, c, http.StatusRequestEntityTooLarge,
+					fmt.Sprintf("Storage limit exceeded. Course storage limit is %.2fGB, current usage is %.2fGB.", meta.CourseLimitInGB, currentUsage),
+					gin.H{
+						"courseLimitGB":  meta.CourseLimitInGB,
+						"currentUsageGB": currentUsage,
+					}, nil)
+				return
+			}
+		}
+
+		if requiresFileAttachment {
 			file, header, err := c.Request.FormFile("file")
 			if err != nil {
 				response.ErrorWithLog(h.logger, c, http.StatusBadRequest, "file is required for this type", err)
@@ -127,24 +164,18 @@ func (h *Handler) Create(c *gin.Context) {
 			}
 			defer file.Close()
 
-			// Get subscription identifier for path construction
-			var subscription struct {
-				IdentifierName string
-			}
-			if err := h.db.Table("subscriptions").
-				Select("identifier_name").
-				Where("id = ?", subscriptionID).
-				First(&subscription).Error; err != nil {
-				response.ErrorWithLog(h.logger, c, http.StatusInternalServerError, "failed to load subscription", err)
-				return
-			}
-
 			// Construct remote path
 			folderMap := map[string]string{"pdf": "pdfs", "audio": "audios", "image": "images"}
 			ext := filepath.Ext(header.Filename)
 			randomName := fmt.Sprintf("%d_%d%s", time.Now().Unix(), time.Now().Nanosecond(), ext)
+			identifier := strings.TrimSpace(storageMeta.IdentifierName)
+			if identifier == "" {
+				response.ErrorWithLog(h.logger, c, http.StatusInternalServerError, "subscription identifier is missing", nil)
+				return
+			}
+			courseIDStr := courseID.String()
 			remotePath := fmt.Sprintf("%s/%s/attachments/%s/%s",
-				subscription.IdentifierName, courseID, folderMap[attachmentType], randomName)
+				identifier, courseIDStr, folderMap[attachmentType], randomName)
 
 			// Upload to Bunny Storage
 			cdnURL, err := h.storageClient.UploadStream(c.Request.Context(), remotePath, file, header.Header.Get("Content-Type"))
@@ -183,7 +214,7 @@ func (h *Handler) Create(c *gin.Context) {
 		}
 
 		name = req.Name
-		attachmentType = req.Type
+		attachmentType = strings.ToLower(req.Type)
 		path = req.Path
 		order = req.Order
 		active = req.Active
@@ -216,6 +247,10 @@ func (h *Handler) Create(c *gin.Context) {
 
 	if err := h.db.Exec(`UPDATE lessons SET attachments = array_append(COALESCE(attachments, '{}'::uuid[]), ?) WHERE id = ?`, attachment.ID, lessonID).Error; err != nil {
 		h.logger.Error("failed to append attachment id to lesson", "lessonId", lessonID, "attachmentId", attachment.ID, "error", err)
+	}
+
+	if isFileAttachment {
+		h.refreshCourseStorage(c.Request.Context(), courseID)
 	}
 
 	response.Created(c, attachment, "")
@@ -332,6 +367,12 @@ func (h *Handler) Delete(c *gin.Context) {
 		return
 	}
 
+	courseID, err := uuid.Parse(c.Param("courseId"))
+	if err != nil {
+		response.ErrorWithLog(h.logger, c, http.StatusBadRequest, "invalid course id", err)
+		return
+	}
+
 	// Get attachment to access path before deleting
 	attachment, err := Get(h.db, id)
 	if err != nil {
@@ -348,6 +389,10 @@ func (h *Handler) Delete(c *gin.Context) {
 	// Cleanup Bunny Storage file (standalone attachment deletion, so storageCleaned=false)
 	if err := cleanup.DeleteAttachmentFile(c.Request.Context(), h.storageClient, h.logger, id, attachment.Type, attachment.Path, false); err != nil {
 		h.logger.Warn("failed to delete attachment file", "attachmentId", id, "error", err)
+	}
+
+	if isFileAttachmentType(attachment.Type) {
+		h.refreshCourseStorage(c.Request.Context(), courseID)
 	}
 
 	if err := h.db.Exec(`UPDATE lessons SET attachments = array_remove(COALESCE(attachments, '{}'::uuid[]), ?) WHERE id = ?`, id, attachment.LessonID).Error; err != nil {
@@ -429,4 +474,41 @@ func normalizeQuestionsBytes(data []byte) (*types.JSON, error) {
 	copy(jsonCopy, trimmed)
 	result := types.JSON(jsonCopy)
 	return &result, nil
+}
+
+func isFileAttachmentType(t string) bool {
+	if t == "" {
+		return false
+	}
+	_, ok := fileAttachmentTypes[strings.ToLower(t)]
+	return ok
+}
+
+func round2(value float64) float64 {
+	return math.Round(value*100) / 100
+}
+
+func (h *Handler) refreshCourseStorage(ctx context.Context, courseID uuid.UUID) {
+	if h.storageUsage == nil {
+		return
+	}
+	if _, err := h.storageUsage.UpdateCourseStorage(ctx, courseID); err != nil {
+		h.logger.Warn("failed to update course storage usage", "courseId", courseID, "error", err)
+	}
+}
+
+type courseStorageMeta struct {
+	IdentifierName   string
+	CourseLimitInGB  float64
+	StorageUsageInGB float64
+}
+
+func (h *Handler) loadCourseStorageMeta(subscriptionID, courseID uuid.UUID) (courseStorageMeta, error) {
+	var meta courseStorageMeta
+	err := h.db.Table("courses").
+		Select("subscriptions.identifier_name AS identifier_name, subscriptions.course_limit_in_gb AS course_limit_in_gb, courses.storage_usage_in_gb AS storage_usage_in_gb").
+		Joins("JOIN subscriptions ON subscriptions.id = courses.subscription_id").
+		Where("courses.id = ? AND subscriptions.id = ?", courseID, subscriptionID).
+		Take(&meta).Error
+	return meta, err
 }

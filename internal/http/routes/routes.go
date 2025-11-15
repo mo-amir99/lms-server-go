@@ -26,6 +26,7 @@ import (
 	"github.com/mo-amir99/lms-server-go/internal/features/usage"
 	"github.com/mo-amir99/lms-server-go/internal/features/user"
 	"github.com/mo-amir99/lms-server-go/internal/middleware"
+	"github.com/mo-amir99/lms-server-go/internal/services/storageusage"
 	"github.com/mo-amir99/lms-server-go/pkg/bunny"
 	"github.com/mo-amir99/lms-server-go/pkg/config"
 	"github.com/mo-amir99/lms-server-go/pkg/email"
@@ -34,7 +35,7 @@ import (
 )
 
 // Register wires all feature routes onto the engine.
-func Register(engine *gin.Engine, cfg *config.Config, db *gorm.DB, logger *slog.Logger, streamClient *bunny.StreamClient, storageClient *bunny.StorageClient, emailClient *email.Client, meetingCache *meeting.Cache) {
+func Register(engine *gin.Engine, cfg *config.Config, db *gorm.DB, logger *slog.Logger, streamClient *bunny.StreamClient, storageClient *bunny.StorageClient, statsClient *bunny.StatisticsClient, emailClient *email.Client, meetingCache *meeting.Cache) {
 	// Health check endpoints (no /api prefix for Kubernetes probes)
 	healthHandler := health.NewHandler(db, logger)
 	engine.GET("/health", healthHandler.Health)
@@ -86,7 +87,9 @@ func Register(engine *gin.Engine, cfg *config.Config, db *gorm.DB, logger *slog.
 	courseHandler := course.NewHandler(db, logger, streamClient, storageClient)
 	course.RegisterRoutes(api, courseHandler, acStaff)
 
-	lessonHandler := lesson.NewHandler(db, logger, streamClient, storageClient)
+	storageUsageService := storageusage.NewService(db, logger, streamClient, storageClient, statsClient)
+
+	lessonHandler := lesson.NewHandler(db, logger, streamClient, storageClient, storageUsageService)
 	lesson.RegisterRoutes(api, lessonHandler, acAll, acStaff)
 
 	announcementHandler := announcement.NewHandler(db, logger)
@@ -98,7 +101,7 @@ func Register(engine *gin.Engine, cfg *config.Config, db *gorm.DB, logger *slog.
 	commentHandler := comment.NewHandler(db, logger)
 	comment.RegisterRoutes(api, commentHandler, acAll)
 
-	attachmentHandler := attachment.NewHandler(db, logger, storageClient)
+	attachmentHandler := attachment.NewHandler(db, logger, storageClient, storageUsageService)
 	attachment.RegisterRoutes(api, attachmentHandler, acAll, acStaff)
 
 	forumHandler := forum.NewHandler(db, logger)
@@ -122,6 +125,6 @@ func Register(engine *gin.Engine, cfg *config.Config, db *gorm.DB, logger *slog.
 	meeting.RegisterRoutes(api, meetingHandler, acStaff, acAll)
 
 	// Usage routes (Bunny CDN statistics)
-	usageHandler := usage.NewHandler(db, logger)
+	usageHandler := usage.NewHandler(db, logger, storageUsageService)
 	usage.RegisterRoutes(api, usageHandler, adminOnly, acAdmin, acStaffWithInactive)
 }

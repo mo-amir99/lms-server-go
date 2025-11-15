@@ -1,6 +1,7 @@
 package lesson
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -17,6 +18,7 @@ import (
 	"github.com/mo-amir99/lms-server-go/internal/features/subscription"
 	"github.com/mo-amir99/lms-server-go/internal/features/userwatch"
 	"github.com/mo-amir99/lms-server-go/internal/middleware"
+	"github.com/mo-amir99/lms-server-go/internal/services/storageusage"
 	"github.com/mo-amir99/lms-server-go/pkg/bunny"
 	"github.com/mo-amir99/lms-server-go/pkg/cleanup"
 	"github.com/mo-amir99/lms-server-go/pkg/pagination"
@@ -31,15 +33,17 @@ type Handler struct {
 	logger        *slog.Logger
 	streamClient  *bunny.StreamClient
 	storageClient *bunny.StorageClient
+	storageUsage  *storageusage.Service
 }
 
 // NewHandler constructs a lesson handler instance.
-func NewHandler(db *gorm.DB, logger *slog.Logger, streamClient *bunny.StreamClient, storageClient *bunny.StorageClient) *Handler {
+func NewHandler(db *gorm.DB, logger *slog.Logger, streamClient *bunny.StreamClient, storageClient *bunny.StorageClient, storageUsage *storageusage.Service) *Handler {
 	return &Handler{
 		db:            db,
 		logger:        logger,
 		streamClient:  streamClient,
 		storageClient: storageClient,
+		storageUsage:  storageUsage,
 	}
 }
 
@@ -129,6 +133,8 @@ func (h *Handler) Create(c *gin.Context) {
 		h.respondError(c, err, "failed to create lesson")
 		return
 	}
+
+	h.refreshCourseStorage(c.Request.Context(), courseID)
 
 	response.Created(c, lesson, "")
 }
@@ -305,6 +311,10 @@ func (h *Handler) Update(c *gin.Context) {
 		return
 	}
 
+	if input.VideoIDProvided {
+		h.refreshCourseStorage(c.Request.Context(), courseID)
+	}
+
 	response.Success(c, http.StatusOK, updatedLesson, "", nil)
 }
 
@@ -366,6 +376,8 @@ func (h *Handler) Delete(c *gin.Context) {
 	if err := cleanup.DeleteLessonVideo(c.Request.Context(), h.streamClient, h.logger, id, lesson.VideoID, false); err != nil {
 		h.logger.Warn("failed to delete lesson video", "lessonId", id, "error", err)
 	}
+
+	h.refreshCourseStorage(c.Request.Context(), courseID)
 
 	response.Success(c, http.StatusOK, true, "", nil)
 }
@@ -618,6 +630,15 @@ func (h *Handler) respondError(c *gin.Context, err error, fallback string) {
 	}
 
 	response.ErrorWithLog(h.logger, c, status, message, err)
+}
+
+func (h *Handler) refreshCourseStorage(ctx context.Context, courseID uuid.UUID) {
+	if h.storageUsage == nil {
+		return
+	}
+	if _, err := h.storageUsage.UpdateCourseStorage(ctx, courseID); err != nil {
+		h.logger.Warn("failed to refresh course storage usage", "courseId", courseID, "error", err)
+	}
 }
 
 func normalizeAttachmentIDs(value interface{}) ([]string, bool, error) {

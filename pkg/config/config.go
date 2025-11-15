@@ -29,6 +29,7 @@ type Config struct {
 type BunnyConfig struct {
 	Stream  BunnyStreamConfig
 	Storage BunnyStorageConfig
+	Stats   BunnyStatsConfig
 }
 
 // BunnyStreamConfig contains Bunny Stream API configuration.
@@ -47,6 +48,12 @@ type BunnyStorageConfig struct {
 	APIKey      string
 	BaseURL     string
 	CDNURL      string
+}
+
+// BunnyStatsConfig contains Bunny statistics API configuration.
+type BunnyStatsConfig struct {
+	APIKey  string
+	BaseURL string
 }
 
 // EmailConfig contains email/SMTP configuration.
@@ -149,10 +156,16 @@ func loadDatabaseConfig() DatabaseConfig {
 }
 
 func loadBunnyConfig() BunnyConfig {
+	streamAPIKey := getEnv("BUNNY_STREAM_API_KEY", "")
+	statsAPIKey := getEnv("BUNNY_STATS_API_KEY", "")
+	if statsAPIKey == "" {
+		statsAPIKey = streamAPIKey
+	}
+
 	return BunnyConfig{
 		Stream: BunnyStreamConfig{
 			LibraryID:   getEnv("BUNNY_STREAM_LIBRARY_ID", ""),
-			APIKey:      getEnv("BUNNY_STREAM_API_KEY", ""),
+			APIKey:      streamAPIKey,
 			BaseURL:     getEnv("BUNNY_STREAM_BASE_URL", "https://video.bunnycdn.com"),
 			SecurityKey: getEnv("BUNNY_STREAM_SECURITY_KEY", ""),
 			DeliveryURL: getEnv("BUNNY_STREAM_DELIVERY_URL", ""),
@@ -163,6 +176,10 @@ func loadBunnyConfig() BunnyConfig {
 			APIKey:      getEnv("BUNNY_STORAGE_API_KEY", ""),
 			BaseURL:     getEnv("BUNNY_STORAGE_BASE_URL", "https://storage.bunnycdn.com"),
 			CDNURL:      getEnv("BUNNY_STORAGE_CDN_URL", ""),
+		},
+		Stats: BunnyStatsConfig{
+			APIKey:  statsAPIKey,
+			BaseURL: getEnv("BUNNY_STATS_BASE_URL", "https://api.bunny.net"),
 		},
 	}
 }

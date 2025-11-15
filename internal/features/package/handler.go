@@ -2,6 +2,8 @@ package pkg
 
 import (
 	"errors"
+	"fmt"
+	"math"
 	"net/http"
 
 	"log/slog"
@@ -43,17 +45,36 @@ func (h *Handler) List(c *gin.Context) {
 type createRequest struct {
 	Name                   string   `json:"name" binding:"required"`
 	Description            *string  `json:"description"`
-	Price                  float64  `json:"price" binding:"required"`
 	DiscountPercentage     *float64 `json:"discountPercentage"`
-	Order                  int      `json:"order" binding:"required"`
-	SubscriptionPoints     *int     `json:"subscriptionPoints"`
+	Order                  float64  `json:"order" binding:"required"`
 	SubscriptionPointPrice *float64 `json:"subscriptionPointPrice"`
-	CoursesLimit           *int     `json:"coursesLimit"`
-	CourseLimitInGB        *int     `json:"courseLimitInGB"`
-	AssistantsLimit        *int     `json:"assistantsLimit"`
-	WatchLimit             *int     `json:"watchLimit"`
-	WatchInterval          *int     `json:"watchInterval"`
+	CoursesLimit           *float64 `json:"coursesLimit"`
+	CourseLimitInGB        *float64 `json:"courseLimitInGB"`
+	AssistantsLimit        *float64 `json:"assistantsLimit"`
+	WatchLimit             *float64 `json:"watchLimit"`
+	WatchInterval          *float64 `json:"watchInterval"`
 	Active                 *bool    `json:"isActive"`
+}
+
+func normalizeWholeNumber(field string, value float64) (int, error) {
+	if math.IsNaN(value) || math.IsInf(value, 0) {
+		return 0, fmt.Errorf("%s must be a finite number", field)
+	}
+	if math.Mod(value, 1) != 0 {
+		return 0, fmt.Errorf("%s must be a whole number", field)
+	}
+	return int(value), nil
+}
+
+func normalizeOptionalWholeNumber(field string, value *float64) (*int, error) {
+	if value == nil {
+		return nil, nil
+	}
+	result, err := normalizeWholeNumber(field, *value)
+	if err != nil {
+		return nil, err
+	}
+	return &result, nil
 }
 
 // Create inserts a new package.
@@ -64,8 +85,38 @@ func (h *Handler) Create(c *gin.Context) {
 		return
 	}
 
-	// Convert float64 to Money
-	price := types.NewMoney(req.Price)
+	order, err := normalizeWholeNumber("order", req.Order)
+	if err != nil {
+		response.ErrorWithLog(h.logger, c, http.StatusBadRequest, err.Error(), err)
+		return
+	}
+
+	coursesLimit, err := normalizeOptionalWholeNumber("coursesLimit", req.CoursesLimit)
+	if err != nil {
+		response.ErrorWithLog(h.logger, c, http.StatusBadRequest, err.Error(), err)
+		return
+	}
+
+	// CourseLimitInGB is already *float64, no conversion needed
+	courseLimitInGB := req.CourseLimitInGB
+
+	assistantsLimit, err := normalizeOptionalWholeNumber("assistantsLimit", req.AssistantsLimit)
+	if err != nil {
+		response.ErrorWithLog(h.logger, c, http.StatusBadRequest, err.Error(), err)
+		return
+	}
+
+	watchLimit, err := normalizeOptionalWholeNumber("watchLimit", req.WatchLimit)
+	if err != nil {
+		response.ErrorWithLog(h.logger, c, http.StatusBadRequest, err.Error(), err)
+		return
+	}
+
+	watchInterval, err := normalizeOptionalWholeNumber("watchInterval", req.WatchInterval)
+	if err != nil {
+		response.ErrorWithLog(h.logger, c, http.StatusBadRequest, err.Error(), err)
+		return
+	}
 
 	var subscriptionPointPrice *types.Money
 	if req.SubscriptionPointPrice != nil {
@@ -76,16 +127,14 @@ func (h *Handler) Create(c *gin.Context) {
 	input := CreateInput{
 		Name:                   req.Name,
 		Description:            req.Description,
-		Price:                  price,
 		DiscountPercentage:     req.DiscountPercentage,
-		Order:                  req.Order,
-		SubscriptionPoints:     req.SubscriptionPoints,
+		Order:                  order,
 		SubscriptionPointPrice: subscriptionPointPrice,
-		CoursesLimit:           req.CoursesLimit,
-		CourseLimitInGB:        req.CourseLimitInGB,
-		AssistantsLimit:        req.AssistantsLimit,
-		WatchLimit:             req.WatchLimit,
-		WatchInterval:          req.WatchInterval,
+		CoursesLimit:           coursesLimit,
+		CourseLimitInGB:        courseLimitInGB,
+		AssistantsLimit:        assistantsLimit,
+		WatchLimit:             watchLimit,
+		WatchInterval:          watchInterval,
 		Active:                 req.Active,
 	}
 
@@ -154,16 +203,6 @@ func (h *Handler) Update(c *gin.Context) {
 		}
 	}
 
-	if value, ok := body["price"]; ok {
-		val, err := request.ReadFloat(value)
-		if err != nil {
-			response.ErrorWithLog(h.logger, c, http.StatusBadRequest, "price must be a number", err)
-			return
-		}
-		m := types.NewMoney(val)
-		input.Price = &m
-	}
-
 	if value, ok := body["discountPercentage"]; ok {
 		val, err := request.ReadFloat(value)
 		if err != nil {
@@ -180,15 +219,6 @@ func (h *Handler) Update(c *gin.Context) {
 			return
 		}
 		input.Order = &val
-	}
-
-	if value, ok := body["subscriptionPoints"]; ok {
-		val, err := request.ReadInt(value)
-		if err != nil {
-			response.ErrorWithLog(h.logger, c, http.StatusBadRequest, "subscriptionPoints must be an integer", err)
-			return
-		}
-		input.SubscriptionPoints = &val
 	}
 
 	if value, ok := body["subscriptionPointPrice"]; ok {
@@ -211,9 +241,9 @@ func (h *Handler) Update(c *gin.Context) {
 	}
 
 	if value, ok := body["courseLimitInGB"]; ok {
-		val, err := request.ReadInt(value)
+		val, err := request.ReadFloat(value)
 		if err != nil {
-			response.ErrorWithLog(h.logger, c, http.StatusBadRequest, "courseLimitInGB must be an integer", err)
+			response.ErrorWithLog(h.logger, c, http.StatusBadRequest, "courseLimitInGB must be a number", err)
 			return
 		}
 		input.CourseLimitInGB = &val
@@ -303,5 +333,3 @@ func (h *Handler) respondError(c *gin.Context, err error, fallback string) {
 
 	response.ErrorWithLog(h.logger, c, status, message, err)
 }
-
-

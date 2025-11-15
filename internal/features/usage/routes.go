@@ -21,10 +21,24 @@ func RegisterRoutes(router *gin.RouterGroup, handler *Handler, adminOnly, acAdmi
 			)...,
 		)
 
+		usage.POST("/subscription/:subscriptionId/recalculate",
+			append(
+				acAdmin,
+				handler.RecalculateSubscription,
+			)...,
+		)
+
 		usage.GET("/subscription/:subscriptionId/course/:courseId",
 			append(
 				acStaffWithInactive,
 				handler.GetCourseStats,
+			)...,
+		)
+
+		usage.POST("/subscription/:subscriptionId/course/:courseId/recalculate",
+			append(
+				acStaffWithInactive,
+				handler.RecalculateCourse,
 			)...,
 		)
 	}

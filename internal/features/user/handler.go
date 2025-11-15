@@ -72,8 +72,8 @@ func (h *Handler) List(c *gin.Context) {
 				filters.SubscriptionID = &subID
 			}
 		}
-		// Exclude students for admin/superadmin
-		filters.ExcludeUserType = types.UserTypeStudent
+		// Exclude students and assistants for admin/superadmin views
+		filters.ExcludeUserTypes = []types.UserType{types.UserTypeStudent, types.UserTypeAssistant}
 	case types.UserTypeInstructor, types.UserTypeAssistant:
 		// Instructor/Assistant can only see users from their subscription
 		filters.SubscriptionID = user.SubscriptionID

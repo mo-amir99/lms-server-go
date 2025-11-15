@@ -17,7 +17,7 @@ var (
 var (
 	defaultSubscriptionPoints     = 0
 	defaultSubscriptionPointPrice = types.NewMoney(0)
-	defaultCourseLimitInGB        = 25
+	defaultCourseLimitInGB        = 25.0
 	defaultCoursesLimit           = 5
 	defaultAssistantsLimit        = 5
 	defaultWatchLimit             = 2

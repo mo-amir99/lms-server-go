@@ -9,7 +9,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -179,6 +181,19 @@ type CreateVideoResponse struct {
 type UploadVideoResult struct {
 	BunnyVideoID string
 	VideoURL     string
+}
+
+type streamVideoItem struct {
+	GUID        string `json:"guid"`
+	Title       string `json:"title"`
+	StorageSize int64  `json:"storageSize"`
+}
+
+type streamVideosResponse struct {
+	Items        []streamVideoItem `json:"items"`
+	CurrentPage  int               `json:"currentPage"`
+	ItemsPerPage int               `json:"itemsPerPage"`
+	TotalItems   int               `json:"totalItems"`
 }
 
 // CreateVideo creates a new video entry in Bunny Stream.
@@ -416,4 +431,151 @@ func (c *StreamClient) GenerateTusUploadInfo(ctx context.Context, title, collect
 		AuthorizationExpire:    expiration,
 		ExpiresInSec:           expirationSeconds,
 	}, nil
+}
+
+// CollectionStorageBytes sums Bunny Stream storage usage for a collection.
+func (c *StreamClient) CollectionStorageBytes(ctx context.Context, collectionID string) (int64, error) {
+	if strings.TrimSpace(collectionID) == "" {
+		return 0, nil
+	}
+	return c.sumVideoStorageBytes(ctx, collectionID)
+}
+
+// TotalVideoStorageBytes returns total storage usage across all videos in the library.
+func (c *StreamClient) TotalVideoStorageBytes(ctx context.Context) (int64, error) {
+	return c.sumVideoStorageBytes(ctx, "")
+}
+
+// CollectionBandwidthBytes fetches bandwidth usage for a collection between two timestamps.
+func (c *StreamClient) CollectionBandwidthBytes(ctx context.Context, collectionID string, from, to time.Time) (int64, error) {
+	if strings.TrimSpace(collectionID) == "" {
+		return 0, nil
+	}
+	return c.bandwidthBytes(ctx, collectionID, from, to)
+}
+
+// TotalBandwidthBytes returns global bandwidth usage between two timestamps.
+func (c *StreamClient) TotalBandwidthBytes(ctx context.Context, from, to time.Time) (int64, error) {
+	return c.bandwidthBytes(ctx, "", from, to)
+}
+
+func (c *StreamClient) sumVideoStorageBytes(ctx context.Context, collectionID string) (int64, error) {
+	const perPage = 100
+	page := 1
+	var total int64
+
+	for {
+		resp, err := c.fetchVideosPage(ctx, page, perPage, collectionID)
+		if err != nil {
+			return 0, err
+		}
+
+		for _, item := range resp.Items {
+			total += item.StorageSize
+		}
+
+		if len(resp.Items) == 0 {
+			break
+		}
+
+		if resp.TotalItems > 0 {
+			if page*perPage >= resp.TotalItems {
+				break
+			}
+		} else if len(resp.Items) < perPage {
+			break
+		}
+
+		page++
+	}
+
+	return total, nil
+}
+
+func (c *StreamClient) fetchVideosPage(ctx context.Context, page, perPage int, collectionID string) (streamVideosResponse, error) {
+	params := url.Values{}
+	params.Set("page", strconv.Itoa(page))
+	params.Set("itemsPerPage", strconv.Itoa(perPage))
+	if strings.TrimSpace(collectionID) != "" {
+		params.Set("collection", collectionID)
+	}
+
+	endpoint := fmt.Sprintf("%s/library/%s/videos?%s", c.baseURL, c.libraryID, params.Encode())
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return streamVideosResponse{}, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("AccessKey", c.apiKey)
+	req.Header.Set("User-Agent", "LMS-Server-Go/1.0.0")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return streamVideosResponse{}, fmt.Errorf("failed to execute request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return streamVideosResponse{}, fmt.Errorf("bunny API error: status=%d, body=%s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var result streamVideosResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return streamVideosResponse{}, fmt.Errorf("failed to decode videos response: %w", err)
+	}
+
+	return result, nil
+}
+
+func (c *StreamClient) bandwidthBytes(ctx context.Context, collectionID string, from, to time.Time) (int64, error) {
+	if from.After(to) {
+		from, to = to, from
+	}
+
+	params := url.Values{}
+	params.Set("dateFrom", from.UTC().Format(time.RFC3339))
+	params.Set("dateTo", to.UTC().Format(time.RFC3339))
+	if strings.TrimSpace(collectionID) != "" {
+		params.Set("collection", collectionID)
+	}
+
+	endpoint := fmt.Sprintf("%s/library/%s/statistics?%s", c.baseURL, c.libraryID, params.Encode())
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return 0, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("AccessKey", c.apiKey)
+	req.Header.Set("User-Agent", "LMS-Server-Go/1.0.0")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return 0, fmt.Errorf("failed to execute request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return 0, fmt.Errorf("bunny API error: status=%d, body=%s", resp.StatusCode, string(bodyBytes))
+	}
+
+	// Bunny Stream statistics API response structure
+	var result struct {
+		ViewsChart        map[string]int64 `json:"viewsChart"`
+		WatchTimeChart    map[string]int64 `json:"watchTimeChart"`
+		CountryViewCounts map[string]int64 `json:"countryViewCounts"`
+		CountryWatchTime  map[string]int64 `json:"countryWatchTime"`
+		EngagementScore   float64          `json:"engagementScore"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return 0, fmt.Errorf("failed to decode bandwidth response: %w", err)
+	}
+
+	// NOTE: Bunny Stream statistics API doesn't provide bandwidth data directly
+	// The response contains views and watch time, but not bandwidth consumption
+	// Bandwidth data may need to be obtained from the Bunny account/billing API
+	// or calculated from video views * average bitrate
+	// For now, returning 0 as bandwidth is not available from this endpoint
+	return 0, nil
 }

@@ -16,13 +16,12 @@ type Package struct {
 
 	Name                   string       `gorm:"type:varchar(80);not null;uniqueIndex" json:"name"`
 	Description            *string      `gorm:"type:varchar(1000)" json:"description,omitempty"`
-	Price                  types.Money  `gorm:"type:numeric(10,2);not null" json:"price"`
+	Price                  types.Money  `gorm:"type:numeric(10,2);not null" json:"-"`
 	DiscountPercentage     float64      `gorm:"type:numeric(5,2);not null;default:0;column:discount_percentage" json:"discountPercentage"`
 	Order                  int          `gorm:"type:int;not null;uniqueIndex" json:"order"`
-	SubscriptionPoints     *int         `gorm:"type:int;column:subscription_points" json:"subscriptionPoints,omitempty"`
 	SubscriptionPointPrice *types.Money `gorm:"type:numeric(10,2);column:subscription_point_price" json:"subscriptionPointPrice,omitempty"`
 	CoursesLimit           *int         `gorm:"type:int;column:courses_limit" json:"coursesLimit,omitempty"`
-	CourseLimitInGB        *int         `gorm:"type:int;column:course_limit_in_gb" json:"courseLimitInGB,omitempty"`
+	CourseLimitInGB        *float64     `gorm:"type:numeric(10,2);column:course_limit_in_gb" json:"courseLimitInGB,omitempty"`
 	AssistantsLimit        *int         `gorm:"type:int;column:assistants_limit" json:"assistantsLimit,omitempty"`
 	WatchLimit             *int         `gorm:"type:int;column:watch_limit" json:"watchLimit,omitempty"`
 	WatchInterval          *int         `gorm:"type:int;column:watch_interval" json:"watchInterval,omitempty"`
@@ -36,13 +35,11 @@ func (Package) TableName() string { return "subscription_packages" }
 type CreateInput struct {
 	Name                   string
 	Description            *string
-	Price                  types.Money
 	DiscountPercentage     *float64
 	Order                  int
-	SubscriptionPoints     *int
 	SubscriptionPointPrice *types.Money
 	CoursesLimit           *int
-	CourseLimitInGB        *int
+	CourseLimitInGB        *float64
 	AssistantsLimit        *int
 	WatchLimit             *int
 	WatchInterval          *int
@@ -54,13 +51,11 @@ type UpdateInput struct {
 	Name                   *string
 	Description            *string
 	DescriptionProvided    bool
-	Price                  *types.Money
 	DiscountPercentage     *float64
 	Order                  *int
-	SubscriptionPoints     *int
 	SubscriptionPointPrice *types.Money
 	CoursesLimit           *int
-	CourseLimitInGB        *int
+	CourseLimitInGB        *float64
 	AssistantsLimit        *int
 	WatchLimit             *int
 	WatchInterval          *int
@@ -99,10 +94,9 @@ func Create(db *gorm.DB, input CreateInput) (Package, error) {
 	pkg := Package{
 		Name:                   strings.TrimSpace(input.Name),
 		Description:            trimStringPtr(input.Description),
-		Price:                  input.Price,
+		Price:                  types.NewMoney(0),
 		DiscountPercentage:     0,
 		Order:                  input.Order,
-		SubscriptionPoints:     input.SubscriptionPoints,
 		SubscriptionPointPrice: input.SubscriptionPointPrice,
 		CoursesLimit:           input.CoursesLimit,
 		CourseLimitInGB:        input.CourseLimitInGB,
@@ -158,17 +152,11 @@ func Update(db *gorm.DB, id uuid.UUID, input UpdateInput) (Package, error) {
 		}
 	}
 
-	if input.Price != nil {
-		updates["price"] = *input.Price
-	}
 	if input.DiscountPercentage != nil {
 		updates["discount_percentage"] = *input.DiscountPercentage
 	}
 	if input.Order != nil {
 		updates["order"] = *input.Order
-	}
-	if input.SubscriptionPoints != nil {
-		updates["subscription_points"] = *input.SubscriptionPoints
 	}
 	if input.SubscriptionPointPrice != nil {
 		updates["subscription_point_price"] = *input.SubscriptionPointPrice

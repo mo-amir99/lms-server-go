@@ -86,6 +86,15 @@ func main() {
 		cfg.Bunny.Storage.CDNURL,
 	)
 
+	// Initialize Bunny Statistics client (optional)
+	var statsClient *bunny.StatisticsClient
+	if cfg.Bunny.Stats.APIKey != "" {
+		statsClient = bunny.NewStatisticsClient(
+			cfg.Bunny.Stats.BaseURL,
+			cfg.Bunny.Stats.APIKey,
+		)
+	}
+
 	// Initialize Email client
 	emailClient := email.NewClient(
 		cfg.Email.Host,
@@ -166,7 +175,7 @@ func main() {
 	rateLimiter := middleware.NewRateLimiter(100, time.Minute)
 	router.Use(rateLimiter.Middleware())
 
-	routes.Register(router, cfg, db, appLogger, streamClient, storageClient, emailClient, meetingCache)
+	routes.Register(router, cfg, db, appLogger, streamClient, storageClient, statsClient, emailClient, meetingCache)
 
 	srv := &http.Server{
 		Addr:              cfg.ServerAddress(),

@@ -60,7 +60,7 @@ type createRequest struct {
 	IdentifierName         string   `json:"identifierName" binding:"required"`
 	SubscriptionPoints     *int     `json:"SubscriptionPoints"`
 	SubscriptionPointPrice *float64 `json:"SubscriptionPointPrice"`
-	CourseLimitInGB        *int     `json:"CourseLimitInGB"`
+	CourseLimitInGB        *float64 `json:"CourseLimitInGB"`
 	CoursesLimit           *int     `json:"CoursesLimit"`
 	AssistantsLimit        *int     `json:"assistantsLimit"`
 	WatchLimit             *int     `json:"watchLimit"`
@@ -138,6 +138,11 @@ func (h *Handler) CreateFromPackage(c *gin.Context) {
 	var req createFromPackageRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.ErrorWithLog(h.logger, c, http.StatusBadRequest, "invalid subscription payload", err)
+		return
+	}
+
+	if req.SubscriptionPoints == nil || *req.SubscriptionPoints <= 0 {
+		response.ErrorWithLog(h.logger, c, http.StatusBadRequest, "SubscriptionPoints must be provided and greater than zero when using a package", fmt.Errorf("subscription points required"))
 		return
 	}
 
@@ -286,9 +291,9 @@ func (h *Handler) Update(c *gin.Context) {
 	}
 
 	if value, ok := body["CourseLimitInGB"]; ok {
-		val, err := request.ReadInt(value)
+		val, err := request.ReadFloat(value)
 		if err != nil {
-			response.ErrorWithLog(h.logger, c, http.StatusBadRequest, "CourseLimitInGB must be an integer", err)
+			response.ErrorWithLog(h.logger, c, http.StatusBadRequest, "CourseLimitInGB must be a number", err)
 			return
 		}
 		input.CourseLimitInGB = &val

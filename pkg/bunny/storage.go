@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -201,11 +203,43 @@ func (c *StorageClient) ExtractRelativePath(cdnURL string) string {
 	return cdnURL
 }
 
+// BunnyTime is a custom time type that handles Bunny Storage's timestamp format
+type BunnyTime struct {
+	time.Time
+}
+
+// UnmarshalJSON parses Bunny's timestamp format (without timezone)
+func (bt *BunnyTime) UnmarshalJSON(b []byte) error {
+	s := strings.Trim(string(b), "\"")
+	if s == "null" || s == "" {
+		bt.Time = time.Time{}
+		return nil
+	}
+
+	// Bunny returns timestamps like "2025-11-13T14:36:25.178" without timezone
+	// We'll try multiple formats
+	formats := []string{
+		"2006-01-02T15:04:05.999", // With milliseconds
+		"2006-01-02T15:04:05",     // Without milliseconds
+		time.RFC3339,              // Standard RFC3339
+	}
+
+	var err error
+	for _, format := range formats {
+		bt.Time, err = time.Parse(format, s)
+		if err == nil {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("unable to parse time: %s", s)
+}
+
 // FileInfo represents metadata about a file in Bunny Storage.
 type FileInfo struct {
 	ObjectName      string    `json:"ObjectName"`
 	Length          int64     `json:"Length"`
-	LastChanged     time.Time `json:"LastChanged"`
+	LastChanged     BunnyTime `json:"LastChanged"`
 	IsDirectory     bool      `json:"IsDirectory"`
 	ServerId        int       `json:"ServerId"`
 	StorageZoneName string    `json:"StorageZoneName"`
@@ -215,7 +249,7 @@ type FileInfo struct {
 
 // ListFiles lists files in a directory.
 func (c *StorageClient) ListFiles(ctx context.Context, folderPath string) ([]FileInfo, error) {
-	url := fmt.Sprintf("%s/%s/%s/", c.baseURL, c.zoneName, folderPath)
+	url := c.buildFolderURL(folderPath)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
@@ -236,17 +270,63 @@ func (c *StorageClient) ListFiles(ctx context.Context, folderPath string) ([]Fil
 	}
 
 	var files []FileInfo
-	// Bunny returns an array of FileInfo objects
-	bodyBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
+	if err := json.NewDecoder(resp.Body).Decode(&files); err != nil {
+		return nil, fmt.Errorf("failed to decode bunny storage listing: %w", err)
 	}
 
-	// For simplicity, return empty for now - would need proper JSON parsing
-	// This is a placeholder for directory listing functionality
-	_ = bodyBytes
-
 	return files, nil
+}
+
+// CalculateFolderSize recursively sums the size of every file under folderPath.
+func (c *StorageClient) CalculateFolderSize(ctx context.Context, folderPath string) (int64, error) {
+	items, err := c.ListFiles(ctx, folderPath)
+	if err != nil {
+		return 0, err
+	}
+
+	var total int64
+	for _, item := range items {
+		if item.IsDirectory {
+			subPath := joinStoragePaths(folderPath, item.ObjectName)
+			size, err := c.CalculateFolderSize(ctx, subPath)
+			if err != nil {
+				return 0, err
+			}
+			total += size
+		} else {
+			total += item.Length
+		}
+	}
+
+	return total, nil
+}
+
+func (c *StorageClient) buildFolderURL(folderPath string) string {
+	path := strings.Trim(folderPath, "/")
+	base := fmt.Sprintf("%s/%s", strings.TrimRight(c.baseURL, "/"), c.zoneName)
+	if path != "" {
+		base = fmt.Sprintf("%s/%s", base, path)
+	}
+	if !strings.HasSuffix(base, "/") {
+		base += "/"
+	}
+	return base
+}
+
+func joinStoragePaths(parts ...string) string {
+	result := ""
+	for _, part := range parts {
+		trimmed := strings.Trim(part, "/")
+		if trimmed == "" {
+			continue
+		}
+		if result == "" {
+			result = trimmed
+		} else {
+			result = result + "/" + trimmed
+		}
+	}
+	return result
 }
 
 // StorageUploadInfo contains the details needed for client-side file uploads to Bunny Storage.

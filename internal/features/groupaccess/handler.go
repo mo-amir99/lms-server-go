@@ -10,7 +10,6 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	pkg "github.com/mo-amir99/lms-server-go/internal/features/package"
 	"github.com/mo-amir99/lms-server-go/internal/features/subscription"
 	"github.com/mo-amir99/lms-server-go/pkg/response"
 )
@@ -84,15 +83,10 @@ func (h *Handler) Create(c *gin.Context) {
 		Select("COALESCE(SUM(subscription_points_usage), 0)").
 		Scan(&currentUsage)
 
-	// Get available points from subscription or package
 	availablePoints := sub.SubscriptionPoints
-	if sub.PackageID != nil && availablePoints == 0 {
-		var packageModel pkg.Package
-		if err := h.db.First(&packageModel, "id = ?", sub.PackageID).Error; err == nil {
-			if packageModel.SubscriptionPoints != nil {
-				availablePoints = *packageModel.SubscriptionPoints
-			}
-		}
+	if availablePoints <= 0 {
+		response.ErrorWithLog(h.logger, c, http.StatusBadRequest, "subscription has no SubscriptionPoints configured", errors.New("subscription points must be set"))
+		return
 	}
 
 	newUsage := int(currentUsage) + points
@@ -229,13 +223,9 @@ func (h *Handler) Update(c *gin.Context) {
 		Scan(&currentUsage)
 
 	availablePoints := sub.SubscriptionPoints
-	if sub.PackageID != nil && availablePoints == 0 {
-		var packageModel pkg.Package
-		if err := h.db.First(&packageModel, "id = ?", sub.PackageID).Error; err == nil {
-			if packageModel.SubscriptionPoints != nil {
-				availablePoints = *packageModel.SubscriptionPoints
-			}
-		}
+	if availablePoints <= 0 {
+		response.ErrorWithLog(h.logger, c, http.StatusBadRequest, "subscription has no SubscriptionPoints configured", errors.New("subscription points must be set"))
+		return
 	}
 
 	newUsage := int(currentUsage) + newPoints
@@ -292,5 +282,3 @@ func max(a, b int) int {
 	}
 	return b
 }
-
-

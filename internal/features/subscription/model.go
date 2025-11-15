@@ -21,7 +21,7 @@ type Subscription struct {
 	IdentifierName         string      `gorm:"type:varchar(20);not null;uniqueIndex;column:identifier_name" json:"identifierName"`
 	SubscriptionPoints     int         `gorm:"type:int;not null;default:0;column:subscription_points" json:"SubscriptionPoints"`
 	SubscriptionPointPrice types.Money `gorm:"type:numeric(10,2);not null;default:0;column:subscription_point_price" json:"SubscriptionPointPrice"`
-	CourseLimitInGB        int         `gorm:"type:int;not null;default:25;column:course_limit_in_gb" json:"CourseLimitInGB"`
+	CourseLimitInGB        float64     `gorm:"type:numeric(10,2);not null;default:25;column:course_limit_in_gb" json:"CourseLimitInGB"`
 	CoursesLimit           int         `gorm:"type:int;not null;default:5;column:courses_limit" json:"CoursesLimit"`
 	PackageID              *uuid.UUID  `gorm:"type:uuid;column:package_id" json:"packageId,omitempty"`
 	AssistantsLimit        int         `gorm:"type:int;not null;default:5;column:assistants_limit" json:"assistantsLimit"`
@@ -45,7 +45,7 @@ type CreateInput struct {
 	IdentifierName         string
 	SubscriptionPoints     *int
 	SubscriptionPointPrice *types.Money
-	CourseLimitInGB        *int
+	CourseLimitInGB        *float64
 	CoursesLimit           *int
 	AssistantsLimit        *int
 	WatchLimit             *int
@@ -71,7 +71,7 @@ type UpdateInput struct {
 
 	SubscriptionPoints     *int
 	SubscriptionPointPrice *types.Money
-	CourseLimitInGB        *int
+	CourseLimitInGB        *float64
 	CoursesLimit           *int
 	AssistantsLimit        *int
 	WatchLimit             *int
@@ -359,9 +359,6 @@ func newSubscriptionFromInput(input CreateInput) Subscription {
 }
 
 func applyPackage(sub *Subscription, pkg subscriptionPackageRow) {
-	if pkg.SubscriptionPoints != nil {
-		sub.SubscriptionPoints = *pkg.SubscriptionPoints
-	}
 	if pkg.SubscriptionPointPrice != nil {
 		sub.SubscriptionPointPrice = *pkg.SubscriptionPointPrice
 	}
@@ -451,9 +448,8 @@ func (userRow) TableName() string { return "users" }
 
 type subscriptionPackageRow struct {
 	ID                     uuid.UUID    `gorm:"column:id"`
-	SubscriptionPoints     *int         `gorm:"column:subscription_points"`
 	SubscriptionPointPrice *types.Money `gorm:"column:subscription_point_price"`
-	CourseLimitInGB        *int         `gorm:"column:course_limit_in_gb"`
+	CourseLimitInGB        *float64     `gorm:"column:course_limit_in_gb"`
 	CoursesLimit           *int         `gorm:"column:courses_limit"`
 	AssistantsLimit        *int         `gorm:"column:assistants_limit"`
 	WatchLimit             *int         `gorm:"column:watch_limit"`
