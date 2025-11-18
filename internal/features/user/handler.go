@@ -190,8 +190,11 @@ func (h *Handler) Create(c *gin.Context) {
 
 // GetByID fetches a single user.
 func (h *Handler) GetByID(c *gin.Context) {
-	requester, _ := c.Get("user")
-	requesterUser := requester.(middleware.User)
+	requesterUser, ok := middleware.GetUserFromContext(c)
+	if !ok || requesterUser == nil {
+		response.ErrorWithLog(h.logger, c, http.StatusUnauthorized, "User not authenticated", nil)
+		return
+	}
 
 	id, err := uuid.Parse(c.Param("userId"))
 	if err != nil {
@@ -418,8 +421,11 @@ func (h *Handler) Update(c *gin.Context) {
 
 // Delete removes a user.
 func (h *Handler) Delete(c *gin.Context) {
-	requester, _ := c.Get("user")
-	requesterUser := requester.(middleware.User)
+	requesterUser, ok := middleware.GetUserFromContext(c)
+	if !ok || requesterUser == nil {
+		response.ErrorWithLog(h.logger, c, http.StatusUnauthorized, "User not authenticated", nil)
+		return
+	}
 
 	id, err := uuid.Parse(c.Param("userId"))
 	if err != nil {
