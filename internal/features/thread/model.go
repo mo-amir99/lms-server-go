@@ -16,6 +16,7 @@ type Reply struct {
 	UserName  string    `json:"userName"`
 	UserType  string    `json:"userType"`
 	Content   string    `json:"content"`
+	Approved  bool      `json:"isApproved"`
 	CreatedAt time.Time `json:"createdAt"`
 }
 
@@ -110,18 +111,40 @@ func Create(db *gorm.DB, input CreateInput) (*Thread, error) {
 		return nil, ErrUserNameRequired
 	}
 
+	// Check if forum requires approval
+	var forum struct {
+		RequiresApproval bool
+		AssistantsOnly   bool
+	}
+	err := db.Table("forums").Select("requires_approval, assistants_only").Where("id = ?", input.ForumID).Scan(&forum).Error
+	if err != nil {
+		return nil, err
+	}
+
+	// Check if user is staff (auto-approve for staff)
+	isStaff := input.UserType == types.UserTypeInstructor ||
+		input.UserType == types.UserTypeAssistant ||
+		input.UserType == types.UserTypeAdmin ||
+		input.UserType == types.UserTypeSuperAdmin
+
+	// Determine approval status
+	approved := true
+	if input.Approved != nil {
+		// Explicit approval status provided (from admin/staff)
+		approved = *input.Approved
+	} else if !isStaff && forum.RequiresApproval {
+		// Students posting to forums that require approval start unapproved
+		approved = false
+	}
+
 	thread := Thread{
 		ForumID:  input.ForumID,
 		Title:    input.Title,
 		Content:  input.Content,
 		UserName: input.UserName,
-		UserType: string(input.UserType), // Convert typed enum to string for storage
+		UserType: string(input.UserType),
 		Replies:  json.RawMessage("[]"),
-		Approved: true,
-	}
-
-	if input.Approved != nil {
-		thread.Approved = *input.Approved
+		Approved: approved,
 	}
 
 	if err := db.Create(&thread).Error; err != nil {
@@ -207,11 +230,13 @@ func AddReply(db *gorm.DB, threadID uuid.UUID, userName string, userType types.U
 		replies = []Reply{}
 	}
 
+	// Replies are always approved (only threads need approval)
 	newReply := Reply{
 		ID:        uuid.New().String(),
 		UserName:  userName,
-		UserType:  string(userType), // Convert typed enum to string for JSON storage
+		UserType:  string(userType),
 		Content:   content,
+		Approved:  true,
 		CreatedAt: time.Now(),
 	}
 

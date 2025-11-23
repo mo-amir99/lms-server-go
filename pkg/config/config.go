@@ -23,6 +23,7 @@ type Config struct {
 	Database DatabaseConfig
 	Bunny    BunnyConfig
 	Email    EmailConfig
+	IAP      IAPConfig
 }
 
 // BunnyConfig contains Bunny CDN configuration.
@@ -54,6 +55,26 @@ type BunnyStorageConfig struct {
 type BunnyStatsConfig struct {
 	APIKey  string
 	BaseURL string
+}
+
+// IAPConfig contains In-App Purchase configuration.
+type IAPConfig struct {
+	GooglePlay GooglePlayConfig
+	AppStore   AppStoreConfig
+}
+
+// GooglePlayConfig contains Google Play IAP settings.
+type GooglePlayConfig struct {
+	Enabled            bool
+	PackageName        string
+	ServiceAccountJSON string // Path to service account JSON file or base64 encoded content
+}
+
+// AppStoreConfig contains App Store IAP settings.
+type AppStoreConfig struct {
+	Enabled      bool
+	SharedSecret string // Shared secret from App Store Connect
+	UseSandbox   bool   // Use sandbox environment for testing
 }
 
 // EmailConfig contains email/SMTP configuration.
@@ -101,6 +122,7 @@ func Load() (*Config, error) {
 	cfg.Database = loadDatabaseConfig()
 	cfg.Bunny = loadBunnyConfig()
 	cfg.Email = loadEmailConfig()
+	cfg.IAP = loadIAPConfig()
 
 	return cfg, nil
 }
@@ -194,6 +216,21 @@ func loadEmailConfig() EmailConfig {
 		From:        getEnv("SMTP_FROM", "noreply@example.com"),
 		Secure:      secure,
 		FrontendURL: getEnv("FRONTEND_URL", "http://localhost:3000"),
+	}
+}
+
+func loadIAPConfig() IAPConfig {
+	return IAPConfig{
+		GooglePlay: GooglePlayConfig{
+			Enabled:            getEnvAsBool("IAP_GOOGLE_PLAY_ENABLED", false),
+			PackageName:        getEnv("IAP_GOOGLE_PLAY_PACKAGE_NAME", ""),
+			ServiceAccountJSON: getEnv("IAP_GOOGLE_PLAY_SERVICE_ACCOUNT", ""),
+		},
+		AppStore: AppStoreConfig{
+			Enabled:      getEnvAsBool("IAP_APP_STORE_ENABLED", false),
+			SharedSecret: getEnv("IAP_APP_STORE_SHARED_SECRET", ""),
+			UseSandbox:   getEnvAsBool("IAP_APP_STORE_USE_SANDBOX", true),
+		},
 	}
 }
 

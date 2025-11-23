@@ -7,7 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// RequestLogger writes a concise access log per request using slog.
+// RequestLogger logs HTTP requests, only showing errors and warnings on console
 func RequestLogger(logger *slog.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now()
@@ -18,26 +18,24 @@ func RequestLogger(logger *slog.Logger) gin.HandlerFunc {
 		status := c.Writer.Status()
 		latency := time.Since(start)
 
-		// Use different log levels based on status code
-		logLevel := slog.LevelInfo
+		// Only log errors and warnings to console
 		if status >= 500 {
-			logLevel = slog.LevelError
+			logger.Error(
+				"http_request_error",
+				slog.String("request_id", requestID),
+				slog.String("method", c.Request.Method),
+				slog.String("path", c.Request.URL.Path),
+				slog.Int("status", status),
+				slog.Duration("latency", latency),
+			)
 		} else if status >= 400 {
-			logLevel = slog.LevelWarn
+			logger.Warn(
+				"http_request_warning",
+				slog.String("request_id", requestID),
+				slog.String("method", c.Request.Method),
+				slog.String("path", c.Request.URL.Path),
+				slog.Int("status", status),
+			)
 		}
-
-		logger.Log(
-			c.Request.Context(),
-			logLevel,
-			"http_request",
-			slog.String("request_id", requestID),
-			slog.String("method", c.Request.Method),
-			slog.String("path", c.Request.URL.Path),
-			slog.Int("status", status),
-			slog.Duration("latency", latency),
-			slog.String("client_ip", c.ClientIP()),
-			slog.String("user_agent", c.Request.UserAgent()),
-			slog.Int("bytes", c.Writer.Size()),
-		)
 	}
 }

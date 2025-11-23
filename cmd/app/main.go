@@ -167,7 +167,7 @@ func main() {
 	router.Use(middleware.RequestLogger(appLogger))           // Log all requests
 	router.Use(middleware.SecurityHeaders())                  // Add security headers
 	router.Use(middleware.CacheControl())                     // Set cache headers
-	router.Use(middleware.RequestSizeLimit(10 * 1024 * 1024)) // 10MB limit
+	router.Use(middleware.RequestSizeLimit(25 * 1024 * 1024)) // 25MB limit for attachments
 	router.Use(metrics.Middleware())                          // Collect Prometheus metrics
 	router.Use(request.Handler(appLogger))                    // Request context handler
 
@@ -180,9 +180,9 @@ func main() {
 	srv := &http.Server{
 		Addr:              cfg.ServerAddress(),
 		Handler:           router,
-		ReadTimeout:       15 * time.Second,
-		ReadHeaderTimeout: 5 * time.Second,
-		WriteTimeout:      30 * time.Second,
+		ReadTimeout:       2 * time.Minute, // Increased for file uploads
+		ReadHeaderTimeout: 10 * time.Second,
+		WriteTimeout:      2 * time.Minute, // Increased for file uploads
 		IdleTimeout:       120 * time.Second,
 		MaxHeaderBytes:    1 << 20, // 1MB
 	}

@@ -551,11 +551,9 @@ func (s *Server) handleStreamMessage(sock *socket.Socket, payload map[string]any
 		"isHost":    stream.HostID == userData.ID.String(),
 	}
 
-	if err := sock.Emit("streamMessageReceived", chatMessage); err != nil {
-		s.logger.Warn("failed to echo chat message", slog.String("error", err.Error()))
-	}
-
-	if err := sock.To(streamRoom(streamID)).Emit("streamMessageReceived", chatMessage); err != nil {
+	// Broadcast to everyone in the stream room including the sender
+	// Using io.To() instead of sock.To() to ensure the sender also receives the message
+	if err := s.io.To(streamRoom(streamID)).Emit("streamMessageReceived", chatMessage); err != nil {
 		s.logger.Warn("failed to broadcast chat message", slog.String("error", err.Error()))
 	}
 }

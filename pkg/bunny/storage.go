@@ -31,7 +31,7 @@ func NewStorageClient(zoneName, password, baseURL, hostname string) *StorageClie
 		baseURL:  baseURL,
 		hostname: hostname,
 		httpClient: &http.Client{
-			Timeout: 60 * time.Second,
+			Timeout: 5 * time.Minute, // Increased for large audio/video files
 		},
 	}
 }

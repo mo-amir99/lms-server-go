@@ -91,6 +91,33 @@ func (h *Handler) Create(c *gin.Context) {
 		return
 	}
 
+	// Check if forum allows this user type to post
+	var forum struct {
+		AssistantsOnly bool
+		Active         bool
+	}
+	err = h.db.Table("forums").Select("assistants_only, active").Where("id = ?", forumID).Scan(&forum).Error
+	if err != nil {
+		response.ErrorWithLog(h.logger, c, http.StatusInternalServerError, "failed to load forum", err)
+		return
+	}
+
+	if !forum.Active {
+		response.ErrorWithLog(h.logger, c, http.StatusForbidden, "This forum is not active.", ErrUnauthorized)
+		return
+	}
+
+	// Check assistantsOnly permission
+	isStaff := currentUser.UserType == types.UserTypeInstructor ||
+		currentUser.UserType == types.UserTypeAssistant ||
+		currentUser.UserType == types.UserTypeAdmin ||
+		currentUser.UserType == types.UserTypeSuperAdmin
+
+	if forum.AssistantsOnly && !isStaff {
+		response.ErrorWithLog(h.logger, c, http.StatusForbidden, "Only instructors and assistants can post in this forum.", ErrUnauthorized)
+		return
+	}
+
 	thread, err := Create(h.db, CreateInput{
 		ForumID:  forumID,
 		Title:    req.Title,
@@ -196,6 +223,41 @@ func (h *Handler) AddReply(c *gin.Context) {
 	currentUser, ok := middleware.GetUserFromContext(c)
 	if !ok {
 		response.ErrorWithLog(h.logger, c, http.StatusUnauthorized, "Authentication required.", nil)
+		return
+	}
+
+	// Get the thread to find its forum
+	var threadData struct {
+		ForumID uuid.UUID
+	}
+	if err := h.db.Table("threads").Select("forum_id").Where("id = ?", threadID).Scan(&threadData).Error; err != nil {
+		response.ErrorWithLog(h.logger, c, http.StatusInternalServerError, "failed to load thread", err)
+		return
+	}
+
+	// Check if forum is assistantsOnly
+	var forum struct {
+		AssistantsOnly bool
+		Active         bool
+	}
+	if err := h.db.Table("forums").Select("assistants_only, active").Where("id = ?", threadData.ForumID).Scan(&forum).Error; err != nil {
+		response.ErrorWithLog(h.logger, c, http.StatusInternalServerError, "failed to load forum", err)
+		return
+	}
+
+	if !forum.Active {
+		response.ErrorWithLog(h.logger, c, http.StatusForbidden, "This forum is not active.", ErrUnauthorized)
+		return
+	}
+
+	// Check assistantsOnly permission for replies
+	isStaff := currentUser.UserType == types.UserTypeInstructor ||
+		currentUser.UserType == types.UserTypeAssistant ||
+		currentUser.UserType == types.UserTypeAdmin ||
+		currentUser.UserType == types.UserTypeSuperAdmin
+
+	if forum.AssistantsOnly && !isStaff {
+		response.ErrorWithLog(h.logger, c, http.StatusForbidden, "Only instructors and assistants can reply in this forum.", ErrUnauthorized)
 		return
 	}
 

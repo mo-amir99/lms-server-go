@@ -19,12 +19,15 @@ type Package struct {
 	Price                  types.Money  `gorm:"type:numeric(10,2);not null" json:"-"`
 	DiscountPercentage     float64      `gorm:"type:numeric(5,2);not null;default:0;column:discount_percentage" json:"discountPercentage"`
 	Order                  int          `gorm:"type:int;not null;uniqueIndex" json:"order"`
+	SubscriptionPoints     *int         `gorm:"type:int;column:subscription_points" json:"subscriptionPoints,omitempty"`
 	SubscriptionPointPrice *types.Money `gorm:"type:numeric(10,2);column:subscription_point_price" json:"subscriptionPointPrice,omitempty"`
 	CoursesLimit           *int         `gorm:"type:int;column:courses_limit" json:"coursesLimit,omitempty"`
 	CourseLimitInGB        *float64     `gorm:"type:numeric(10,2);column:course_limit_in_gb" json:"courseLimitInGB,omitempty"`
 	AssistantsLimit        *int         `gorm:"type:int;column:assistants_limit" json:"assistantsLimit,omitempty"`
 	WatchLimit             *int         `gorm:"type:int;column:watch_limit" json:"watchLimit,omitempty"`
 	WatchInterval          *int         `gorm:"type:int;column:watch_interval" json:"watchInterval,omitempty"`
+	GooglePlayProductID    *string      `gorm:"type:varchar(255);column:google_play_product_id" json:"googlePlayProductId,omitempty"`
+	AppStoreProductID      *string      `gorm:"type:varchar(255);column:app_store_product_id" json:"appStoreProductId,omitempty"`
 	Active                 bool         `gorm:"type:boolean;not null;default:true;column:is_active" json:"isActive"`
 }
 
@@ -37,29 +40,37 @@ type CreateInput struct {
 	Description            *string
 	DiscountPercentage     *float64
 	Order                  int
+	SubscriptionPoints     *int
 	SubscriptionPointPrice *types.Money
 	CoursesLimit           *int
 	CourseLimitInGB        *float64
 	AssistantsLimit        *int
 	WatchLimit             *int
 	WatchInterval          *int
+	GooglePlayProductID    *string
+	AppStoreProductID      *string
 	Active                 *bool
 }
 
 // UpdateInput captures mutable package fields.
 type UpdateInput struct {
-	Name                   *string
-	Description            *string
-	DescriptionProvided    bool
-	DiscountPercentage     *float64
-	Order                  *int
-	SubscriptionPointPrice *types.Money
-	CoursesLimit           *int
-	CourseLimitInGB        *float64
-	AssistantsLimit        *int
-	WatchLimit             *int
-	WatchInterval          *int
-	Active                 *bool
+	Name                        *string
+	Description                 *string
+	DescriptionProvided         bool
+	DiscountPercentage          *float64
+	Order                       *int
+	SubscriptionPoints          *int
+	SubscriptionPointPrice      *types.Money
+	CoursesLimit                *int
+	CourseLimitInGB             *float64
+	AssistantsLimit             *int
+	WatchLimit                  *int
+	WatchInterval               *int
+	GooglePlayProductID         *string
+	GooglePlayProductIDProvided bool
+	AppStoreProductID           *string
+	AppStoreProductIDProvided   bool
+	Active                      *bool
 }
 
 // List queries all packages, optionally filtering by active status.
@@ -97,12 +108,15 @@ func Create(db *gorm.DB, input CreateInput) (Package, error) {
 		Price:                  types.NewMoney(0),
 		DiscountPercentage:     0,
 		Order:                  input.Order,
+		SubscriptionPoints:     input.SubscriptionPoints,
 		SubscriptionPointPrice: input.SubscriptionPointPrice,
 		CoursesLimit:           input.CoursesLimit,
 		CourseLimitInGB:        input.CourseLimitInGB,
 		AssistantsLimit:        input.AssistantsLimit,
 		WatchLimit:             input.WatchLimit,
 		WatchInterval:          input.WatchInterval,
+		GooglePlayProductID:    input.GooglePlayProductID,
+		AppStoreProductID:      input.AppStoreProductID,
 		Active:                 true,
 	}
 
@@ -158,8 +172,25 @@ func Update(db *gorm.DB, id uuid.UUID, input UpdateInput) (Package, error) {
 	if input.Order != nil {
 		updates["order"] = *input.Order
 	}
+	if input.SubscriptionPoints != nil {
+		updates["subscription_points"] = *input.SubscriptionPoints
+	}
 	if input.SubscriptionPointPrice != nil {
 		updates["subscription_point_price"] = *input.SubscriptionPointPrice
+	}
+	if input.GooglePlayProductIDProvided {
+		if input.GooglePlayProductID == nil {
+			updates["google_play_product_id"] = nil
+		} else {
+			updates["google_play_product_id"] = *input.GooglePlayProductID
+		}
+	}
+	if input.AppStoreProductIDProvided {
+		if input.AppStoreProductID == nil {
+			updates["app_store_product_id"] = nil
+		} else {
+			updates["app_store_product_id"] = *input.AppStoreProductID
+		}
 	}
 	if input.CoursesLimit != nil {
 		updates["courses_limit"] = *input.CoursesLimit

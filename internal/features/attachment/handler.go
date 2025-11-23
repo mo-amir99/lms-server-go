@@ -104,7 +104,7 @@ func (h *Handler) Create(c *gin.Context) {
 
 	if isMultipart {
 		// Parse multipart form data (for file uploads: pdf, audio, image)
-		if err := c.Request.ParseMultipartForm(32 << 20); err != nil { // 32 MB max memory
+		if err := c.Request.ParseMultipartForm(25 << 20); err != nil { // 25 MB max memory
 			response.ErrorWithLog(h.logger, c, http.StatusBadRequest, "failed to parse multipart form", err)
 			return
 		}

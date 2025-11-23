@@ -19,6 +19,6 @@ func RegisterRoutes(api *gin.RouterGroup, db *gorm.DB, logger *slog.Logger, supe
 	packages.GET("/:packageId", handler.GetByID)
 
 	packages.POST("", append(superadminOnly, handler.Create)...)
-	packages.PATCH("/:packageId", append(superadminOnly, handler.Update)...)
+	packages.PUT("/:packageId", append(superadminOnly, handler.Update)...)
 	packages.DELETE("/:packageId", append(superadminOnly, handler.Delete)...)
 }

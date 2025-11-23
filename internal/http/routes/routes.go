@@ -15,6 +15,7 @@ import (
 	"github.com/mo-amir99/lms-server-go/internal/features/dashboard"
 	"github.com/mo-amir99/lms-server-go/internal/features/forum"
 	"github.com/mo-amir99/lms-server-go/internal/features/groupaccess"
+	"github.com/mo-amir99/lms-server-go/internal/features/iap"
 	"github.com/mo-amir99/lms-server-go/internal/features/lesson"
 	"github.com/mo-amir99/lms-server-go/internal/features/meeting"
 	pkg "github.com/mo-amir99/lms-server-go/internal/features/package"
@@ -127,4 +128,31 @@ func Register(engine *gin.Engine, cfg *config.Config, db *gorm.DB, logger *slog.
 	// Usage routes (Bunny CDN statistics)
 	usageHandler := usage.NewHandler(db, logger, storageUsageService)
 	usage.RegisterRoutes(api, usageHandler, adminOnly, acAdmin, acStaffWithInactive)
+
+	// IAP routes (In-App Purchase validation and webhooks)
+	// Initialize IAP handlers only if configured
+	if cfg.IAP.GooglePlay.Enabled || cfg.IAP.AppStore.Enabled {
+		var googleValidator *iap.GooglePlayValidator
+		var appleValidator *iap.AppStoreValidator
+
+		if cfg.IAP.GooglePlay.Enabled {
+			// Load service account JSON
+			serviceAccountBytes := []byte(cfg.IAP.GooglePlay.ServiceAccountJSON)
+			validator, err := iap.NewGooglePlayValidator(cfg.IAP.GooglePlay.PackageName, serviceAccountBytes)
+			if err != nil {
+				logger.Error("Failed to initialize Google Play validator", "error", err)
+			} else {
+				googleValidator = validator
+				logger.Info("Google Play IAP enabled", "package", cfg.IAP.GooglePlay.PackageName)
+			}
+		}
+
+		if cfg.IAP.AppStore.Enabled {
+			appleValidator = iap.NewAppStoreValidator(cfg.IAP.AppStore.SharedSecret, cfg.IAP.AppStore.UseSandbox)
+			logger.Info("App Store IAP enabled", "sandbox", cfg.IAP.AppStore.UseSandbox)
+		}
+
+		iapHandler := iap.NewHandler(db, logger, googleValidator, appleValidator)
+		iap.RegisterRoutes(api, iapHandler, allUsers)
+	}
 }

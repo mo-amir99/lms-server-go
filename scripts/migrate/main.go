@@ -6,6 +6,7 @@ import (
 	"log"
 	"log/slog"
 	"os"
+	"strings"
 
 	"github.com/mo-amir99/lms-server-go/internal/features/announcement"
 	"github.com/mo-amir99/lms-server-go/internal/features/attachment"
@@ -98,5 +99,36 @@ func main() {
 	}
 
 	appLogger.Info("Database migrations completed successfully")
+
+	// Run SQL migrations from pkg/database/migrations folder
+	appLogger.Info("Applying SQL migrations...")
+
+	migrationFiles, err := os.ReadDir("pkg/database/migrations")
+	if err != nil {
+		appLogger.Warn("No SQL migrations directory found", slog.String("error", err.Error()))
+	} else {
+		for _, file := range migrationFiles {
+			if file.IsDir() || !strings.HasSuffix(file.Name(), ".sql") {
+				continue
+			}
+
+			migrationPath := fmt.Sprintf("pkg/database/migrations/%s", file.Name())
+			appLogger.Info("Applying SQL migration", slog.String("file", file.Name()))
+
+			sqlContent, err := os.ReadFile(migrationPath)
+			if err != nil {
+				appLogger.Error("Failed to read migration file", slog.String("file", file.Name()), slog.String("error", err.Error()))
+				continue
+			}
+
+			if err := db.Exec(string(sqlContent)).Error; err != nil {
+				appLogger.Error("Failed to execute migration", slog.String("file", file.Name()), slog.String("error", err.Error()))
+				continue
+			}
+
+			appLogger.Info("Migration applied successfully", slog.String("file", file.Name()))
+		}
+	}
+
 	fmt.Println("\n✅ All database tables created/updated successfully!")
 }

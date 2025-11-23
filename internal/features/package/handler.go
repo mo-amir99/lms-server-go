@@ -48,11 +48,14 @@ type createRequest struct {
 	DiscountPercentage     *float64 `json:"discountPercentage"`
 	Order                  float64  `json:"order" binding:"required"`
 	SubscriptionPointPrice *float64 `json:"subscriptionPointPrice"`
+	SubscriptionPoints     *float64 `json:"subscriptionPoints"`
 	CoursesLimit           *float64 `json:"coursesLimit"`
 	CourseLimitInGB        *float64 `json:"courseLimitInGB"`
 	AssistantsLimit        *float64 `json:"assistantsLimit"`
 	WatchLimit             *float64 `json:"watchLimit"`
 	WatchInterval          *float64 `json:"watchInterval"`
+	GooglePlayProductID    *string  `json:"googlePlayProductId"`
+	AppStoreProductID      *string  `json:"appStoreProductId"`
 	Active                 *bool    `json:"isActive"`
 }
 
@@ -124,17 +127,26 @@ func (h *Handler) Create(c *gin.Context) {
 		subscriptionPointPrice = &m
 	}
 
+	subscriptionPoints, err := normalizeOptionalWholeNumber("subscriptionPoints", req.SubscriptionPoints)
+	if err != nil {
+		response.ErrorWithLog(h.logger, c, http.StatusBadRequest, err.Error(), err)
+		return
+	}
+
 	input := CreateInput{
 		Name:                   req.Name,
 		Description:            req.Description,
 		DiscountPercentage:     req.DiscountPercentage,
 		Order:                  order,
 		SubscriptionPointPrice: subscriptionPointPrice,
+		SubscriptionPoints:     subscriptionPoints,
 		CoursesLimit:           coursesLimit,
 		CourseLimitInGB:        courseLimitInGB,
 		AssistantsLimit:        assistantsLimit,
 		WatchLimit:             watchLimit,
 		WatchInterval:          watchInterval,
+		GooglePlayProductID:    req.GooglePlayProductID,
+		AppStoreProductID:      req.AppStoreProductID,
 		Active:                 req.Active,
 	}
 
@@ -229,6 +241,43 @@ func (h *Handler) Update(c *gin.Context) {
 		}
 		m := types.NewMoney(val)
 		input.SubscriptionPointPrice = &m
+	}
+
+	if value, ok := body["subscriptionPoints"]; ok {
+		val, err := request.ReadInt(value)
+		if err != nil {
+			response.ErrorWithLog(h.logger, c, http.StatusBadRequest, "subscriptionPoints must be an integer", err)
+			return
+		}
+		input.SubscriptionPoints = &val
+	}
+
+	if value, ok := body["googlePlayProductId"]; ok {
+		input.GooglePlayProductIDProvided = true
+		if value == nil {
+			input.GooglePlayProductID = nil
+		} else {
+			str, err := request.ReadString(value)
+			if err != nil {
+				response.ErrorWithLog(h.logger, c, http.StatusBadRequest, "googlePlayProductId must be a string", err)
+				return
+			}
+			input.GooglePlayProductID = &str
+		}
+	}
+
+	if value, ok := body["appStoreProductId"]; ok {
+		input.AppStoreProductIDProvided = true
+		if value == nil {
+			input.AppStoreProductID = nil
+		} else {
+			str, err := request.ReadString(value)
+			if err != nil {
+				response.ErrorWithLog(h.logger, c, http.StatusBadRequest, "appStoreProductId must be a string", err)
+				return
+			}
+			input.AppStoreProductID = &str
+		}
 	}
 
 	if value, ok := body["coursesLimit"]; ok {
