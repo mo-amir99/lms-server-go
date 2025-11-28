@@ -144,8 +144,9 @@ func (h *Handler) RequestPasswordReset(c *gin.Context) {
 
 	// Send password reset email asynchronously (only if user was found)
 	if resetInfo != nil {
+		resetURL := h.buildPublicURL("reset-password.html")
 		go func() {
-			if err := h.emailClient.SendPasswordReset(resetInfo.Email, resetInfo.Token, h.cfg.Email.FrontendURL); err != nil {
+			if err := h.emailClient.SendPasswordReset(resetInfo.Email, resetInfo.Token, resetURL); err != nil {
 				h.logger.Error("failed to send password reset email",
 					slog.String("email", resetInfo.Email),
 					slog.String("error", err.Error()))
@@ -311,10 +312,10 @@ func (h *Handler) getTokenConfig() TokenConfig {
 	return TokenConfig{
 		JWTSecret:               h.cfg.JWTSecret,
 		JWTRefreshSecret:        h.cfg.JWTRefreshSecret,
-		AccessTokenExpiry:       15 * time.Minute,
-		RefreshTokenExpiry:      7 * 24 * time.Hour,
-		PasswordResetExpiry:     1 * time.Hour,
-		EmailVerificationExpiry: 24 * time.Hour,
+		AccessTokenExpiry:       time.Duration(h.cfg.AccessTokenExpiry) * time.Minute,
+		RefreshTokenExpiry:      time.Duration(h.cfg.RefreshTokenExpiry) * time.Hour,
+		PasswordResetExpiry:     time.Duration(h.cfg.PasswordResetExpiry) * time.Hour,
+		EmailVerificationExpiry: time.Duration(h.cfg.EmailVerificationExpiry) * time.Hour,
 	}
 }
 

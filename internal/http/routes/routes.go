@@ -109,7 +109,7 @@ func Register(engine *gin.Engine, cfg *config.Config, db *gorm.DB, logger *slog.
 	forum.RegisterRoutes(api, forumHandler, acAll, acStaff)
 
 	threadHandler := thread.NewHandler(db, logger)
-	thread.RegisterRoutes(api, threadHandler, acAll)
+	thread.RegisterRoutes(api, threadHandler, acAll, acStaff)
 
 	referralHandler := referral.NewHandler(db, logger)
 	referral.RegisterRoutes(api, referralHandler, referralAccess, adminOnly)

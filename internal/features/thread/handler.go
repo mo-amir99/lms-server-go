@@ -200,7 +200,36 @@ func (h *Handler) Delete(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, http.StatusOK, true, "", nil)
+	response.Success(c, http.StatusOK, nil, "Thread deleted successfully", nil)
+}
+
+// Approve toggles the approval status of a thread.
+func (h *Handler) Approve(c *gin.Context) {
+	threadID, err := uuid.Parse(c.Param("threadId"))
+	if err != nil {
+		response.ErrorWithLog(h.logger, c, http.StatusBadRequest, "invalid thread id", err)
+		return
+	}
+
+	var req struct {
+		Approved bool `json:"isApproved"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.ErrorWithLog(h.logger, c, http.StatusBadRequest, "invalid approval payload", err)
+		return
+	}
+
+	thread, err := Update(h.db, threadID, UpdateInput{
+		Approved: &req.Approved,
+	})
+
+	if err != nil {
+		h.respondError(c, err, "failed to approve thread")
+		return
+	}
+
+	response.Success(c, http.StatusOK, thread, "", nil)
 }
 
 // AddReply adds a reply to a thread.

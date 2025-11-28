@@ -17,8 +17,12 @@ type Config struct {
 	AllowedOrigins []string
 	LogLevel       string
 
-	JWTSecret        string
-	JWTRefreshSecret string
+	JWTSecret               string
+	JWTRefreshSecret        string
+	AccessTokenExpiry       int // minutes
+	RefreshTokenExpiry      int // hours
+	PasswordResetExpiry     int // hours
+	EmailVerificationExpiry int // hours
 
 	Database DatabaseConfig
 	Bunny    BunnyConfig
@@ -110,12 +114,16 @@ func Load() (*Config, error) {
 	_ = godotenv.Load()
 
 	cfg := &Config{
-		Env:              getEnv("LMS_SERVER_ENV", "development"),
-		Host:             getEnv("LMS_SERVER_HOST", "0.0.0.0"),
-		Port:             getEnv("LMS_SERVER_PORT", "8080"),
-		LogLevel:         getEnv("LMS_LOG_LEVEL", "info"),
-		JWTSecret:        getEnv("JWT_SECRET", "your-secret-key-change-me"),
-		JWTRefreshSecret: getEnv("JWT_REFRESH_SECRET", "your-refresh-secret-change-me"),
+		Env:                     getEnv("LMS_SERVER_ENV", "development"),
+		Host:                    getEnv("LMS_SERVER_HOST", "0.0.0.0"),
+		Port:                    getEnv("LMS_SERVER_PORT", "8080"),
+		LogLevel:                getEnv("LMS_LOG_LEVEL", "info"),
+		JWTSecret:               getEnv("JWT_SECRET", "your-secret-key-change-me"),
+		JWTRefreshSecret:        getEnv("JWT_REFRESH_SECRET", "your-refresh-secret-change-me"),
+		AccessTokenExpiry:       getEnvAsInt("JWT_ACCESS_TOKEN_EXPIRY", 15),
+		RefreshTokenExpiry:      getEnvAsInt("JWT_REFRESH_TOKEN_EXPIRY", 168),
+		PasswordResetExpiry:     getEnvAsInt("JWT_PASSWORD_RESET_EXPIRY", 1),
+		EmailVerificationExpiry: getEnvAsInt("JWT_EMAIL_VERIFICATION_EXPIRY", 24),
 	}
 
 	cfg.AllowedOrigins = splitAndTrim(os.Getenv("LMS_ALLOWED_ORIGINS"))
