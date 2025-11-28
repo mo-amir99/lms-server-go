@@ -43,6 +43,9 @@ func Register(engine *gin.Engine, cfg *config.Config, db *gorm.DB, logger *slog.
 	engine.GET("/ready", healthHandler.Ready)
 	engine.GET("/version", healthHandler.Version)
 
+	// Serve static files from public directory
+	engine.Static("/public", "./public")
+
 	// Metrics endpoint for Prometheus
 	engine.GET("/metrics", gin.WrapH(promhttp.Handler()))
 

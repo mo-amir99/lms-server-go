@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Email Verification - Elites Academy</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          Oxygen, Ubuntu, Cantarell, sans-serif;
+        background-color: #f8fafc;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+        color: #334155;
+      }
+
+      .container {
+        background: white;
+        padding: 48px;
+        border-radius: 16px;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1),
+          0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        width: 100%;
+        max-width: 480px;
+        text-align: center;
+        border: 1px solid #e2e8f0;
+      }
+
+      .header {
+        margin-bottom: 40px;
+      }
+
+      .logo {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 16px;
+      }
+
+      .logo-icon {
+        width: 48px;
+        height: 48px;
+        background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+        border-radius: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-right: 12px;
+        color: white;
+        font-weight: bold;
+        font-size: 20px;
+      }
+
+      .app-name {
+        color: #1e293b;
+        font-size: 24px;
+        font-weight: 700;
+        letter-spacing: -0.025em;
+      }
+
+      .subtitle {
+        color: #64748b;
+        font-size: 16px;
+        margin-top: 8px;
+        line-height: 1.5;
+      }
+
+      .message {
+        padding: 16px;
+        border-radius: 8px;
+        margin-bottom: 24px;
+        font-weight: 500;
+        font-size: 14px;
+        border-left: 4px solid;
+      }
+
+      .message.success {
+        background-color: #f0fdf4;
+        color: #166534;
+        border-left-color: #22c55e;
+      }
+
+      .message.error {
+        background-color: #fef2f2;
+        color: #dc2626;
+        border-left-color: #ef4444;
+      }
+
+      .loading {
+        display: block;
+        margin: 40px 0;
+        color: #64748b;
+      }
+
+      .spinner {
+        border: 2px solid #e5e7eb;
+        border-top: 2px solid #3b82f6;
+        border-radius: 50%;
+        width: 32px;
+        height: 32px;
+        animation: spin 1s linear infinite;
+        display: inline-block;
+        margin-bottom: 16px;
+      }
+
+      @keyframes spin {
+        0% {
+          transform: rotate(0deg);
+        }
+        100% {
+          transform: rotate(360deg);
+        }
+      }
+
+      .footer {
+        margin-top: 32px;
+        padding-top: 24px;
+        border-top: 1px solid #e2e8f0;
+      }
+
+      .footer a {
+        color: #3b82f6;
+        text-decoration: none;
+        font-weight: 500;
+        font-size: 14px;
+        transition: color 0.2s ease;
+      }
+
+      .footer a:hover {
+        color: #1d4ed8;
+      }
+
+      .status-icon {
+        width: 80px;
+        height: 80px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin: 0 auto 24px;
+        font-size: 36px;
+      }
+
+      .success-icon {
+        background-color: #dcfce7;
+        color: #16a34a;
+      }
+
+      .error-icon {
+        background-color: #fef2f2;
+        color: #dc2626;
+      }
+
+      .result-message {
+        font-size: 18px;
+        font-weight: 600;
+        color: #1e293b;
+        margin-bottom: 16px;
+      }
+
+      .result-description {
+        color: #64748b;
+        font-size: 14px;
+        line-height: 1.5;
+      }
+
+      @media (max-width: 640px) {
+        .container {
+          padding: 32px 24px;
+          margin: 16px;
+        }
+
+        .app-name {
+          font-size: 20px;
+        }
+
+        .logo-icon {
+          width: 40px;
+          height: 40px;
+          font-size: 16px;
+        }
+
+        .status-icon {
+          width: 60px;
+          height: 60px;
+          font-size: 28px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="header">
+        <div class="logo">
+          <div class="logo-icon">EA</div>
+          <div class="app-name">Elites Academy</div>
+        </div>
+        <div class="subtitle">Verifying your email address</div>
+      </div>
+
+      <div id="content">
+        <div class="loading">
+          <div class="spinner"></div>
+          <p>Please wait while we verify your email address...</p>
+        </div>
+      </div>
+
+      <div class="footer">
+        <a href="#" onclick="window.close()">← Back to Application</a>
+      </div>
+    </div>
+
+    <script>
+      // Get token from URL
+      const urlParams = new URLSearchParams(window.location.search);
+      const token = urlParams.get("token");
+
+      if (!token) {
+        showResult("Invalid or missing verification token.", false);
+      } else {
+        verifyEmail();
+      }
+
+      async function verifyEmail() {
+        try {
+          const response = await fetch("/api/auth/verifyEmail", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              token: token,
+            }),
+          });
+
+          const data = await response.json();
+
+          if (data.success) {
+            showResult(
+              "Email verification successful! Your account is now verified.",
+              true
+            );
+
+            // Redirect after 3 seconds
+            setTimeout(() => {
+              window.close();
+            }, 3000);
+          } else {
+            showResult(
+              data.message || "Email verification failed. Please try again.",
+              false
+            );
+          }
+        } catch (error) {
+          showResult(
+            "Network error. Please check your connection and try again.",
+            false
+          );
+        }
+      }
+
+      function showResult(message, success) {
+        const content = document.getElementById("content");
+        const iconClass = success ? "success-icon" : "error-icon";
+        const icon = success ? "✓" : "✗";
+
+        content.innerHTML = `
+                <div class="status-icon ${iconClass}">${icon}</div>
+                <div class="result-message">${
+                  success ? "Email Verified!" : "Verification Failed"
+                }</div>
+                <div class="result-description">${message}</div>
+            `;
+      }
+    </script>
+  </body>
+</html>

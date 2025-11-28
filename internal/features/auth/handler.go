@@ -369,11 +369,17 @@ func (h *Handler) respondError(c *gin.Context, err error, fallback string) {
 }
 
 func (h *Handler) buildPublicURL(page string) string {
-	base := strings.TrimRight(h.cfg.Email.FrontendURL, "/")
-	if base == "" {
-		return "/public/" + page
+	// Build URL to our server's static files
+	serverURL := h.cfg.Host
+	if h.cfg.Port != "" && h.cfg.Port != "80" && h.cfg.Port != "443" {
+		serverURL = serverURL + ":" + h.cfg.Port
 	}
-	return base + "/public/" + page
+
+	// Use http or https based on environment
+	scheme := "http"
+	if h.cfg.IsProduction() {
+		scheme = "https"
+	}
+
+	return scheme + "://" + serverURL + "/public/" + page
 }
-
-
