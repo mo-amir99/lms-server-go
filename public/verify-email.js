@@ -31,7 +31,8 @@ async function verifyEmail() {
 
     if (succeeded) {
       const message =
-        payload?.message || "Email verification successful! Your account is now verified.";
+        payload?.message ||
+        "Email verification successful! Your account is now verified.";
       showResult(message, true);
       return;
     }
@@ -69,7 +70,9 @@ function showResult(message, success) {
 
   content.innerHTML = `
     <div class="status-icon ${iconClass}">${icon}</div>
-    <div class="result-message">${success ? "Email Verified!" : "Verification Failed"}</div>
+    <div class="result-message">${
+      success ? "Email Verified!" : "Verification Failed"
+    }</div>
     <div class="result-description">${message}</div>
   `;
 }

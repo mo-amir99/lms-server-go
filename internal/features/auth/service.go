@@ -274,7 +274,7 @@ func ResetPassword(db *gorm.DB, token, newPassword string, cfg TokenConfig) erro
 	}
 
 	// Update password
-	_, err = user.Update(db, usr.ID, user.UpdateInput{
+	updatedUser, err := user.Update(db, usr.ID, user.UpdateInput{
 		Password: &newPassword,
 	})
 	if err != nil {
@@ -282,8 +282,7 @@ func ResetPassword(db *gorm.DB, token, newPassword string, cfg TokenConfig) erro
 	}
 
 	// Clear refresh token for security
-	usr.RefreshToken = nil
-	return db.Save(usr).Error
+	return db.Model(&user.User{}).Where("id = ?", updatedUser.ID).Update("refresh_token", nil).Error
 }
 
 // RefreshAccessToken generates a new access token using a refresh token.

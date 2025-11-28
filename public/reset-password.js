@@ -49,7 +49,8 @@ if (resetForm) {
 
       if (succeeded) {
         const successMessage =
-          payload?.message || "Password reset successful. You can now sign in with your new password.";
+          payload?.message ||
+          "Password reset successful. You can now sign in with your new password.";
         showMessage(successMessage, "success");
         resetForm.style.display = "none";
         return;
