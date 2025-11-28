@@ -1,6 +1,6 @@
-// Get token from URL
 const urlParams = new URLSearchParams(window.location.search);
 const token = urlParams.get("token");
+const backBtn = document.getElementById("backBtn");
 
 if (!token) {
   showResult("Invalid or missing verification token.", false);
@@ -16,28 +16,31 @@ async function verifyEmail() {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        token: token,
+        token,
       }),
     });
 
-    const data = await response.json();
-
-    if (response.ok && data.success) {
-      showResult(
-        "Email verification successful! Your account is now verified.",
-        true
-      );
-
-      // Redirect after 3 seconds
-      setTimeout(() => {
-        window.close();
-      }, 3000);
-    } else {
-      showResult(
-        data.message || "Email verification failed. Please try again.",
-        false
-      );
+    let payload = null;
+    try {
+      payload = await response.json();
+    } catch (_err) {
+      // ignore JSON parse issues
     }
+
+    const succeeded = response.ok && payload?.success === true;
+
+    if (succeeded) {
+      const message =
+        payload?.message || "Email verification successful! Your account is now verified.";
+      showResult(message, true);
+      return;
+    }
+
+    const errorMessage =
+      payload?.message ||
+      payload?.error ||
+      `Email verification failed (HTTP ${response.status}). Please try again.`;
+    showResult(errorMessage, false);
   } catch (error) {
     console.error("Verification error:", error);
     showResult(
@@ -47,13 +50,20 @@ async function verifyEmail() {
   }
 }
 
-document.getElementById("backBtn").addEventListener("click", function(e) {
-  e.preventDefault();
-  window.close();
-});
+if (backBtn) {
+  backBtn.addEventListener("click", function (e) {
+    e.preventDefault();
+    if (document.referrer) {
+      window.location.href = document.referrer;
+    } else {
+      window.location.href = "/";
+    }
+  });
+}
 
 function showResult(message, success) {
   const content = document.getElementById("content");
+  if (!content) return;
   const iconClass = success ? "success-icon" : "error-icon";
   const icon = success ? "✓" : "✗";
 
