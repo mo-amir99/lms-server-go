@@ -23,8 +23,8 @@ func SecurityHeaders() gin.HandlerFunc {
 			c.Writer.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload")
 		}
 
-		// Content security policy - adjust based on your needs
-		c.Writer.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self'; frame-ancestors 'none'")
+		// Content security policy - allow required third-party scripts (Cloudflare Insights)
+		c.Writer.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self'; frame-ancestors 'none'")
 
 		// Referrer policy
 		c.Writer.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
