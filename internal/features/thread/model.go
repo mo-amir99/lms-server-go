@@ -132,7 +132,13 @@ func Create(db *gorm.DB, input CreateInput) (*Thread, error) {
 	if input.Approved != nil {
 		// Explicit approval status provided (from admin/staff)
 		approved = *input.Approved
-	} else if !isStaff && forum.RequiresApproval {
+	} else if forum.AssistantsOnly {
+		// Assistants-only forums auto-approve all threads (staff only can post)
+		approved = true
+	} else if isStaff {
+		// Staff threads are always auto-approved
+		approved = true
+	} else if forum.RequiresApproval {
 		// Students posting to forums that require approval start unapproved
 		approved = false
 	}
