@@ -115,7 +115,7 @@ func GetWithThreads(db *gorm.DB, id uuid.UUID) (*ForumWithThreads, error) {
 		Where("forum_id = ? AND approved = ?", id, true).
 		Order("created_at DESC").
 		Limit(20).
-		Select("id, forum_id, title, content, user_name, user_type, approved as is_approved, created_at, updated_at").
+		Select("id, forum_id, title, content, user_name, user_type, approved, created_at, updated_at").
 		Find(&threads).Error
 
 	if err != nil {
